@@ -52,7 +52,6 @@ int main() {
 
     constexpr uint32_t STENCIL_SIZE = 7;
 
-#if 0
     Matrix<real,uint32_t,Mem> A;
     A.resize<Exec>(hexcore.cell_count(), KOKKOS_LAMBDA (uint32_t i) { return STENCIL_SIZE; });
 
@@ -98,17 +97,19 @@ int main() {
     std::cout << "Solving system of size " << A.n << ", took " << timer.seconds() << std::endl;
 
     viewer.update(x, 0, 1);
-#endif
-    viewer.cube();
+
+    real old_t = Window::get_time();
 
     while (window.is_open()) {
+        real t = Window::get_time();
+        real dt = t - old_t;
+
         Input_State input = window.poll();
 
         glClear(GL_COLOR_BUFFER_BIT);
         glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
 
-        real dt = 1/60.0;
         fpv_update(fpv, input, dt);
 
         Scene scene = {};
@@ -118,6 +119,7 @@ int main() {
         viewer.render(scene);
 
         window.draw();
+        old_t = t;
     }
 
     Kokkos::finalize();
