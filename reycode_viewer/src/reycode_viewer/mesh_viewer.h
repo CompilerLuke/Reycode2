@@ -147,6 +147,28 @@ namespace reycode {
             vertex_buffer.upload({vertices.data(), uint32_t(vertex_count)}, {indices.data(), uint32_t(index_count)});
         }
 
+        void cube() {
+            std::vector<Vertex> vertices;
+            std::vector<uint32_t> indices;
+
+            for (uint32_t i = 0; i < 6; i++) {
+                uint32_t offset = vertices.size();
+                for (uint32_t j = 0; j < 4; j++) {
+                    Vertex vertex = {};
+                    vertex.pos = cube_verts[cube_indices[i][j]];
+                    vertex.normal = vec3(cube_normals[i]);
+                    vertex.color = vec3(0,1,0);
+                    vertices.push_back(vertex);
+                }
+
+                for (uint32_t j = 0; j < 6; j++) {
+                    indices.push_back(offset + quad_face_indices[j]);
+                }
+            }
+            vertex_buffer.upload({vertices.data(), uint32_t(vertices.size())}, {indices.data(), uint32_t(indices.size
+                    ())});
+        }
+
         void render(Scene &scene) {
             glBindVertexArray(vertex_buffer.vao);
             glUseProgram(shader.program);

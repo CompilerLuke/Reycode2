@@ -39,6 +39,7 @@ int main() {
     desc.width = 1024;
     desc.height = 1024;
     desc.title = "Reycode";
+    desc.validation = false;
 
     Window window(desc);
 
@@ -51,6 +52,7 @@ int main() {
 
     constexpr uint32_t STENCIL_SIZE = 7;
 
+#if 0
     Matrix<real,uint32_t,Mem> A;
     A.resize<Exec>(hexcore.cell_count(), KOKKOS_LAMBDA (uint32_t i) { return STENCIL_SIZE; });
 
@@ -88,6 +90,7 @@ int main() {
     });
 
     timer.reset();
+
     auto solver = Linear_Solver<decltype(A)>::AMGCL_solver();
 
     std::cout << "Solving system of size " << A.n << std::endl;
@@ -95,6 +98,8 @@ int main() {
     std::cout << "Solving system of size " << A.n << ", took " << timer.seconds() << std::endl;
 
     viewer.update(x, 0, 1);
+#endif
+    viewer.cube();
 
     while (window.is_open()) {
         Input_State input = window.poll();

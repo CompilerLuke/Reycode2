@@ -6,19 +6,22 @@
 #include <string>
 
 namespace reycode {
-    static void window_error_callback(int error, const char* description) {
-        fprintf(stderr, "Error (%i) : %s\n", error, description);
+    void window_error_callback(int error, const char* description) {
+        fprintf(stderr, "Window error");
+        //fprintf(stderr, "Error (%i) : %s\n", error, description);
     }
     
-    static void gl_message_callback(GLenum,
+    void gl_message_callback(
+        GLenum source,
         GLenum type,
-        GLuint,
+        GLuint id,
         GLenum severity,
-        GLsizei,
+        GLsizei length,
         const GLchar* message,
-        const void*) {
-        fprintf(stderr, "GL CALLBACK: type = 0x%x, severity = 0x%x, message = %s\n",
-            type, severity, message);
+        const void* userParam) {
+        fprintf(stderr, "Warning\n");
+        //fprintf(stderr, "GL CALLBACK: type = 0x%x, severity = 0x%x, message = %s\n",
+        //    type, severity, message);
     }
 
     static void key_callback(GLFWwindow* window, int key, int, int action, int) {
