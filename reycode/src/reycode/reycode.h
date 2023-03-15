@@ -47,10 +47,6 @@ namespace reycode {
         return size_t((int64_t)(num) + (int64_t)(div) - (int64_t)(1)) / div;
     }
 
-    INL_CGPU_CONST size_t ceil_div(size_t num, size_t div) {
-        return size_t((int64_t)(num) + (int64_t)(div) - (int64_t)(1)) / div;
-    }
-
     INLINE uint32_t log2i(uint32_t x) {
         unsigned long index = 0;
 #ifdef _WIN32
