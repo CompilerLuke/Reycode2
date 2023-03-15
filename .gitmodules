@@ -1,0 +1,27 @@
+[submodule "vendor/glfw"]
+	path = vendor/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "vendor/kokkos"]
+	path = vendor/kokkos
+	url = https://github.com/kokkos/kokkos.git
+[submodule "reycode_graphics/vendor/glfw"]
+	path = reycode_graphics/vendor/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "reycode/vendor/kokkos"]
+	path = reycode/vendor/kokkos
+	url = https://github.com/kokkos/kokkos.git
+[submodule "reycode_meshing/vendor/libmorton"]
+	path = reycode_meshing/vendor/libmorton
+	url = https://github.com/CompilerLuke/libmorton.git
+[submodule "reycode/vendor/libmorton"]
+	path = reycode/vendor/libmorton
+	url = https://github.com/CompilerLuke/libmorton.git
+[submodule "reycode_solver/vendor/amgcl"]
+	path = reycode_solver/vendor/amgcl
+	url = https://github.com/ddemidov/amgcl.git
+[submodule "reycode_solver/vendor/Trilinos"]
+	path = reycode_solver/vendor/Trilinos
+	url = https://github.com/trilinos/Trilinos.git
+[submodule "reycode_solver/vendor/--force"]
+	path = reycode_solver/vendor/--force
+	url = https://github.com/ddemidov/amgcl.git
