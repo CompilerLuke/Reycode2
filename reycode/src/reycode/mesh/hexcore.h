@@ -108,6 +108,8 @@ namespace reycode {
 
         uint64_t face_count() const { return m_cell_count * CUBE_FACE_COUNT; }
 
+        static constexpr uint32_t MAX_COEFFS = 7;
+
         void resize(uint64_t size) {
             uint64_t hash_table_size = ceil_div(size,1024)*1024;
             hash_bucket_count = Kokkos::View<uint32_t *, Device>("HASH_BUCKET_COUNT", hash_table_size);
@@ -221,7 +223,7 @@ namespace reycode {
         }
 
         template<class Func>
-        void for_each_cell(const char *name, Func func) {
+        void for_each_cell(const char *name, Func func) const {
             Kokkos::parallel_for(name,
                                  Kokkos::RangePolicy<Exec>(0, cell_count()),
                                  KOKKOS_LAMBDA(uint64_t i) {
@@ -231,7 +233,7 @@ namespace reycode {
         }
 
         template<class Func>
-        void for_each_face(const char *name, Func func) {
+        void for_each_face(const char *name, Func func) const {
             Kokkos::parallel_for(name,
                                  Kokkos::RangePolicy<Exec>(0, face_count()),
                                  [=] CGPU(uint64_t i) {

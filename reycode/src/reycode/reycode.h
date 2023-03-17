@@ -712,8 +712,9 @@ namespace reycode {
         INL_CGPU array() {}
         INL_CGPU array(uint32_t length) : length(length) {}
         INL_CGPU array(std::initializer_list<T> list) : data() {
-            length = list.size();
-            for (uint32_t i = 0; i < length; i++) data[i] = list[i];
+            assert(list.size() <= N);
+            length = 0;
+            for (T value : list) data[length++] = value;
         }
 
         INL_CGPU T& operator[](uint32_t i) {
@@ -861,7 +862,7 @@ namespace reycode {
     }
 
     INLINE void* arena_push(Arena& arena, size_t size, size_t align = 1) {
-        size_t offset = align * ceil_div(arena.used, align);
+        size_t offset = align * ceil_div((uint64_t)arena.used, align);
 
         void* ptr = arena.data + offset;
         arena.used = offset + size;

@@ -24,16 +24,17 @@ int main() {
 
     using Mem = Kokkos::HostSpace;
     using Exec = Kokkos::Serial;
-    using Mesh = MixedMesh<Hexcore<Exec,Mem>>;
+    using Mesh = Hexcore<Exec,Mem>;
+
+    Exec exec;
 
     Mesh mesh = {};
-    auto& hexcore = mesh.get<Hexcore<Exec,Mem>>();
 
     vec3 extent = vec3(1);
     uvec3 dims = uvec3(100);
 
-    HexcoreAMR<Exec,Mem> hexcore_amr(hexcore);
-    hexcore_amr.uniform(extent, dims);
+    HexcoreAMR<Exec,Mem> amr(mesh);
+    amr.uniform(extent, dims);
 
     Window_Desc desc = {};
     desc.width = 1024;
@@ -41,60 +42,24 @@ int main() {
     desc.title = "Reycode";
     desc.validation = false;
 
+
     Window window(desc);
 
     Colormap cm = Colormap::viridis();
 
-    Mesh_Viewer<Exec,Mem,Hexcore<Exec,Mem>> viewer(rhi, hexcore, cm);
+    Mesh_Viewer<Exec,Mem,Hexcore<Exec,Mem>> viewer(rhi, mesh, cm);
 
     FPV fpv = {};
     fpv.view_pos.z = 2;
 
-    constexpr uint32_t STENCIL_SIZE = 7;
+    using Scheme = fvm::scheme::Central_Difference;
 
-    Matrix<real,uint32_t,Mem> A;
-    A.resize<Exec>(hexcore.cell_count(), KOKKOS_LAMBDA (uint32_t i) { return STENCIL_SIZE; });
+    Kokkos::View<real*,Mem> x("x", mesh.cell_count());
 
-    Kokkos::Timer timer;
-    Kokkos::parallel_for("Build Matrix",
-                         Kokkos::RangePolicy<Exec>(0,hexcore.cell_count()),
-                         KOKKOS_LAMBDA (uint32_t i) {
-            fvm::FVM<real, Hexcore<Exec,Mem>, STENCIL_SIZE> fv;
+    auto solver = Linear_Solver<Matrix<real,uint32_t,Mem>>::AMGCL_solver();
 
-            auto cell = hexcore.get_cell(i);
-            for (auto face : cell.faces()) {
-                fv.laplace(face, 1.0);
-            }
-
-            auto stencil = cell.stencil();
-
-            assert(stencil[0] == cell.id());
-            assert(fv.stencil[0] != 0.0_R);
-
-            uint64_t offset = A.rowBegin(i);
-            for (uint32_t i = 0; i < STENCIL_SIZE; i++) {
-                bool valid = stencil[i] != UINT64_MAX;
-                A.coeffs[offset] = valid ? fv.stencil[i] : 0.0;
-                A.cols[offset] = valid ? stencil[i] : 0;
-                offset++;
-            }
-    });
-    std::cout << "Matrix construction took : " << timer.seconds() << std::endl;
-
-    Kokkos::View<real*,Mem> x("x", hexcore.cell_count());
-    Kokkos::View<real*,Mem> b("b", hexcore.cell_count());
-
-    Kokkos::parallel_for("fill b", Kokkos::RangePolicy<Exec>(0,hexcore.cell_count()), KOKKOS_LAMBDA(uint32_t i) {
-        b(i) = -15.0;
-    });
-
-    timer.reset();
-
-    auto solver = Linear_Solver<decltype(A)>::AMGCL_solver();
-
-    std::cout << "Solving system of size " << A.n << std::endl;
-    solver->solve(A,x,b);
-    std::cout << "Solving system of size " << A.n << ", took " << timer.seconds() << std::endl;
+    auto expr = fvm::laplace(1.0_R);
+    fvm::solve(exec, *solver, mesh, expr, x, fvm::scheme::Central_Difference());
 
     viewer.update(x, 0, 1);
 

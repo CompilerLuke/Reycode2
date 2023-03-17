@@ -2,7 +2,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 set(CPP_SOURCE_FILES
     src/reycode_solver/solver.cpp
-        src/reycode_solver/fv/fvm.h src/reycode_solver/linear_solver.h src/reycode_solver/fv/fvm.h src/reycode_solver/linear_solver.cpp)
+        src/reycode_solver/fv/fvm.h src/reycode_solver/linear_solver.h src/reycode_solver/fv/fvm.h src/reycode_solver/linear_solver.cpp src/reycode_solver/fv/linear_solver.h)
 
 add_library(reycode_solver ${CPP_SOURCE_FILES})
 

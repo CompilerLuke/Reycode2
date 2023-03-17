@@ -21,7 +21,6 @@ namespace reycode {
         Shader shader;
         Vertex_Buffer vertex_buffer;
 
-    public:
         static constexpr const char *vertex_shader_face_text =
                 "#version 330\n"
                 "uniform mat4 MVP;\n"
@@ -65,6 +64,7 @@ namespace reycode {
                 "   fragment = vec4(mix(pixel, vec3(0), max(edge_mask.x,edge_mask.y)),1.0);\n"
                 "}\n";
 
+    public:
         Mesh_Viewer(RHI &rhi, Mesh &mesh, Colormap& colormap) : mesh(mesh), colormap(colormap) {
             Vertex_Buffer_Desc desc = {};
             vertex_buffer = Vertex_Buffer(rhi, desc);
@@ -91,6 +91,8 @@ namespace reycode {
             });
 
             Kokkos::View<uint64_t *, Mem> visible_face_ids("CELL VISIBLE", mesh.face_count());
+
+            printf("Mesh faces: %i, cells: %i\n", mesh.face_count(), mesh.cell_count());
 
             uint64_t visible_face_count = 0;
             Kokkos::parallel_scan("VISIBLE FACE SCAN", Kokkos::RangePolicy<Exec>(0, mesh.face_count()), KOKKOS_LAMBDA

@@ -37,8 +37,6 @@ namespace reycode {
             cols = Kokkos::View<Index*, Mem>("Cols", coeff_count);
             coeffs = Kokkos::View<Coeff*, Mem>("Coeffs", coeff_count);
         }
-
-
     };
 
     template<class Matrix>
@@ -46,7 +44,7 @@ namespace reycode {
     public:
         using Coeff = typename Matrix::Coeff;
         using Mem = typename Matrix::Mem;
-        virtual void solve(const Matrix& matrix, Kokkos::View<Coeff*,Mem> x, Kokkos::View<real*,Kokkos::HostSpace> b) = 0;
+        virtual void solve(const Matrix& matrix, Kokkos::View<Coeff*,Mem> x, Kokkos::View<Coeff*,Mem> b) = 0;
         virtual ~Linear_Solver() {}
 
         static std::unique_ptr<Linear_Solver<Matrix>> AMGCL_solver();
