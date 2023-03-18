@@ -58,7 +58,8 @@ int main() {
 
     auto solver = Linear_Solver<Matrix<real,uint32_t,Mem>>::AMGCL_solver();
 
-    auto expr = fvm::laplace(1.0_R);
+    auto expr = 0.5_R*(fvm::laplace(1.0_R)+fvm::laplace(1.0_R));
+
     fvm::solve(exec, *solver, mesh, expr, x, fvm::scheme::Central_Difference());
 
     viewer.update(x, 0, 1);
