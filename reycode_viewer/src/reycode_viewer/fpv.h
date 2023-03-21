@@ -18,6 +18,8 @@ namespace reycode {
         real pitch;
         vec2 prev_cursor_pos;
         bool capture_cursor;
+
+        real mouse_sensitivity = 1.0_R;
     };
 
     void fpv_update(FPV& camera, const Input_State& input, real dt);

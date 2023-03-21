@@ -155,6 +155,8 @@ namespace reycode {
         INL_CGPU_CONST ivec3(uvec3 a) : x(a.x), y(a.y), z(a.z) {}
         INL_CGPU_CONST explicit ivec3(int32_t a) : x(a), y(a), z(a) {}
 
+        INL_CGPU int32_t operator()(int32_t i) const { return (&x)[i]; }
+        INL_CGPU int32_t operator[](int32_t i) const { return (&x)[i]; }
         INL_CGPU int32_t& operator()(int32_t i) { return (&x)[i]; }
         INL_CGPU int32_t& operator[](int32_t i) { return (&x)[i]; }
     };
@@ -456,6 +458,10 @@ namespace reycode {
         return { a.x / b, a.y / b, a.z / b };
     }
 
+    INL_CGPU_CONST vec3 operator/(real a, vec3 b) {
+        return { a / b.x, a / b.y, a / b.z };
+    }
+
     INL_CGPU_CONST bool operator!=(vec3 a, vec3 b) {
         return a.x != b.x || a.y != b.y || a.z != b.z;
     }
@@ -498,6 +504,10 @@ namespace reycode {
 
     INL_CGPU_CONST real dot(vec3 a, vec3 b) {
         return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    INL_CGPU_CONST real avg(vec3 a) {
+        return (a.x + a.y + a.z)/3;
     }
 
     INL_CGPU_CONST real sq(vec3 a) {
@@ -924,4 +934,56 @@ namespace reycode {
     Memory_Ctx make_memory_ctx(uint64_t host_perm, uint64_t host_arena, uint64_t device_perm, uint64_t device_arena, Cuda_Error& err);
     void destroy_memory_ctx(Memory_Ctx&);
 #endif
+
+    template<class Base, class Derived>
+    using with_policy = std::enable_if_t<std::is_same_v<Base, Derived>>;
+
+    template<class T>
+    struct to_vector_impl {};
+
+    template<>
+    struct to_vector_impl<real> { using type = vec3; };
+
+    template<class T>
+    using to_vector = typename to_vector_impl<T>::type;
+
+    template<class T>
+    struct tensor_type_trait {
+        static constexpr bool is_constant = false;
+        static constexpr uint32_t rank = -1;
+        using to_scalar = void;
+    };
+
+    template<>
+    struct tensor_type_trait<real> {
+        static constexpr bool is_constant = true;
+        static constexpr uint32_t rank = 0;
+        using to_vector = real;
+        using to_scalar = real;
+        using kokkos_ptr = real*;
+    };
+
+    template<>
+    struct tensor_type_trait<vec3> {
+        static constexpr bool is_constant = true;
+        static constexpr uint32_t rank = 1;
+        using to_scalar = real;
+        using to_vector = void;
+        using kokkos_ptr = vec3*;
+    };
+
+    template<class T>
+    using to_scalar = typename tensor_type_trait<T>::to_scalar;
+
+    template<class T>
+    static constexpr bool is_constant = tensor_type_trait<T>::is_constant;
+
+    template<class T>
+    static constexpr bool is_scalar = tensor_type_trait<T>::rank == 0;
+
+    template<class T>
+    static constexpr uint32_t rank = tensor_type_trait<T>::rank;
+
+    template<class T>
+    using kokkos_ptr = typename tensor_type_trait<T>::kokkos_ptr;
 }

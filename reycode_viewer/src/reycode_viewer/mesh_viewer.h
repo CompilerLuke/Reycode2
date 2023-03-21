@@ -78,15 +78,15 @@ namespace reycode {
 
             mesh.for_each_cell("CELL VISIBILITY", KOKKOS_LAMBDA(auto &cell) {
                 vec3 position = cell.center();
-                bool visible = !(position >= vec3(center));
+                bool visible = position.z <= center.z;
                 cell_visibility(cell.id()) = visible;
             });
 
             Kokkos::View<bool *, Mem> face_visibility("CELL VISIBLE", mesh.face_count());
 
             mesh.for_each_face("FACE VISIBILITY", KOKKOS_LAMBDA(auto& face) {
-                uint64_t neigh = face.neigh();
-                bool face_visible = cell_visibility(face.cell()) && (neigh==UINT64_MAX || !cell_visibility(neigh));
+                uint64_t neigh = face.neigh().id();
+                bool face_visible = cell_visibility(face.cell().id()) && (neigh==UINT64_MAX || !cell_visibility(neigh));
                 face_visibility(face.id()) = face_visible;
             });
 
@@ -137,7 +137,7 @@ namespace reycode {
 
                                      for (int i = 0; i < face_vertices.size(); i++) {
                                          Vertex vertex = face_vertices[i];
-                                         vertex.color = color_map(colormap, x(face.cell()), min, max);
+                                         vertex.color = color_map(colormap, x(face.cell().id()), min, max);
                                          vertices(v_offset + i) = vertex;
                                      }
 

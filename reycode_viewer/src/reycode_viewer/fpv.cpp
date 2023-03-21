@@ -5,7 +5,7 @@
 namespace reycode {
     void fpv_update(FPV& camera, const Input_State& input, real dt) {
         vec2 cursor_delta = input.cursor_delta;
-        const real sensitivity = 5e-2_R;
+        const real sensitivity = camera.mouse_sensitivity;
 
         camera.capture_cursor = input.mouse_button_down(MOUSE_BUTTON_RIGHT);
 
