@@ -108,7 +108,7 @@ namespace reycode {
 
         template<class T, class LHS, class Mesh, class Mem>
         expr::Laplace<T, LHS> laplace(const fvc::expr::Expr<T,LHS>& lhs, const Field<T,Mesh,Mem>&
-                rhs) {
+        rhs) {
             return {lhs};
         }
 
@@ -118,9 +118,9 @@ namespace reycode {
 
             template<class Expr,class Mesh,class Scheme>
             void coeff_face_sum(const Evaluator<Expr,Mesh,Scheme>& eval,
-                                               Stencil_Matrix<typename Expr::Elem, Mesh>& stencil,
-                                               const typename Mesh::Cell& cell,
-                                               typename Expr::Elem factor) {
+                                Stencil_Matrix<typename Expr::Elem, Mesh>& stencil,
+                                const typename Mesh::Cell& cell,
+                                typename Expr::Elem factor) {
                 for (typename Mesh::Face& face : cell.faces()) eval.coeffs(stencil, face, factor);
             }
 
@@ -346,18 +346,18 @@ namespace reycode {
         }
 
         template<class Exec, class Elem, class... Layout,class... Layout2,  class Mem, class Expr, class Mesh, class
-                Scheme>
+        Scheme>
         void solve(
-                   Exec& exec,
-                   Linear_Solver<Matrix<Elem,uint64_t,Mem>>& solver,
-                   const Mesh &mesh,
-                   const Expr &expr,
-                   Kokkos::View<Elem*, Layout...>& x,
-                   const Boundary_Condition<Elem, Mesh, Mem>& bc,
-                   const Scheme& scheme,
-                   Matrix<Elem,uint64_t,Mem>& matrix,
-                   Kokkos::View<float*, Layout2...>& source
-       ) {
+                Exec& exec,
+                Linear_Solver<Matrix<Elem,uint64_t,Mem>>& solver,
+                const Mesh &mesh,
+                const Expr &expr,
+                Kokkos::View<Elem*, Layout...>& x,
+                const Boundary_Condition<Elem, Mesh, Mem>& bc,
+                const Scheme& scheme,
+                Matrix<Elem,uint64_t,Mem>& matrix,
+                Kokkos::View<float*, Layout2...>& source
+        ) {
             printf("Building matrix : mesh %i\n", mesh.cell_count());
             if (mesh.cell_count() == 0) {
                 fprintf(stderr, "MESH IS empty");
@@ -390,12 +390,6 @@ namespace reycode {
             solve(exec,solver,mesh,expr,x.data(),x.bc(),scheme,matrix,source);
         }
 
-        template<class T, class Mem>
-        struct Pseudo_Matrix {
-            Kokkos::View<kokkos_ptr<T>,Mem> A;
-            Kokkos::View<kokkos_ptr<T>,Mem> H;
-        };
-
         template<class Exec, class Elem, class Mem, class Expr, class Source, class Mesh, class Scheme>
         std::enable_if_t<!is_scalar<Elem>> solve(
                 Exec& exec,
@@ -404,14 +398,10 @@ namespace reycode {
                 const Expr &expr,
                 const Source& source_expr,
                 Field<Elem, Mesh, Mem>& x_vec,
-                const Scheme& scheme,
-                Pseudo_Matrix<Elem, Mem>& pseudo
+                const Scheme& scheme
         ) {
             Matrix<to_scalar<Elem>,uint64_t,Mem> matrix;
             uint64_t n = mesh.cell_count();
-
-            pseudo.A = Kokkos::View<kokkos_ptr<Elem>,Mem>("A",n);
-            pseudo.H = Kokkos::View<kokkos_ptr<Elem>,Mem>("H",n);
 
             Kokkos::View<float *, Kokkos::HostSpace> source("source", n);
             Kokkos::View<float *, Kokkos::HostSpace> x("source", n);
@@ -427,7 +417,7 @@ namespace reycode {
 
                 auto axis_dst = [&](auto& dst, auto& src) {
                     Kokkos::parallel_for("axis_dst", Kokkos::RangePolicy<Exec>(0,n), KOKKOS_LAMBDA(uint32_t i) {
-                       dst(i) = src(i)[axis];
+                        dst(i) = src(i)[axis];
                     });
                 };
 
@@ -440,15 +430,8 @@ namespace reycode {
                 axis_dst(x,x_vec);
 
                 auto bc = x_vec.bc().segregated(axis);
-                solve(exec,solver,mesh,fvm::axis<axis>(expr == source_expr), x,bc,scheme, matrix,
-                      source);
-
-                //todo: avoid re-calculating source
-                build_source(exec,mesh,source,fvm::axis<axis>(expr),bc,scheme);
-                matrix.split_diagonal(exec,A,H,source,x);
-                axis_src(x_vec,x);
-                axis_src(pseudo.A, A);
-                axis_src(pseudo.H, H);
+                solve(exec,solver,mesh,fvm::axis<axis>(expr), x,bc,scheme, matrix,source);
+                axis_src(x_vec, x);
             };
 
             solve_axis(std::integral_constant<uint32_t,0>());

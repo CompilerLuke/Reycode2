@@ -80,8 +80,8 @@ namespace reycode {
             return {rhs};
         }
 
-        template<class T, class Mesh, class Mem>
-        expr::Grad<to_vector<T>, Field<T,Mesh,Mem>> grad(const Field<T,Mesh,Mem>& rhs) {
+        template<class T, class RHS>
+        expr::Grad<to_vector<T>, RHS> grad(const expr::Expr<T,RHS>& rhs) {
             return {rhs};
         }
 

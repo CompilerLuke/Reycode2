@@ -19,7 +19,77 @@ using namespace reycode;
 struct PressureBC {};
 struct VelocityBC {};
 
-const real lid_velocity = 50;
+const real lid_velocity = 100;
+
+namespace reycode::fvc {
+    namespace expr {
+        template<uint32_t axis>
+        struct AxisTag {};
+
+        template<class T, class LHS, uint32_t axis>
+        using Axis = Unary_Expr<struct AxisTag<axis>, T, LHS>;
+
+        template<class LHS>
+        using Pressure_Poisson = Unary_Expr<struct PressurePoissonTag, real, LHS>;
+    };
+
+    template<class LHS>
+    expr::Pressure_Poisson<LHS> pressure_poisson(expr::Expr<vec3, LHS>& lhs) {
+        return { lhs };
+    }
+
+    template<uint32_t AXIS, class T, class LHS>
+    expr::Axis<to_scalar<T>, LHS, AXIS> axis(const expr::Expr<T,LHS>& lhs) {
+        return {lhs};
+    }
+
+    namespace eval {
+        template<class T, class LHS, uint32_t AXIS, class Mesh, class Scheme>
+        class Evaluator<expr::Axis<T, LHS, AXIS>, Mesh, Scheme> {
+            Evaluator<LHS, Mesh, Scheme> lhs;
+        public:
+            Evaluator(const expr::Axis<T,LHS,AXIS>& expr) : lhs(expr.lhs) {}
+
+            T eval(const typename Mesh::Cell& cell) const {
+                vec3 result = lhs.eval(cell);
+                return result[AXIS];
+            }
+        };
+
+        template<class LHS, class Mesh, class Scheme>
+        class Evaluator<expr::Pressure_Poisson<LHS>, Mesh, Scheme> {
+            Evaluator<expr::Grad<vec3,expr::Axis<real, LHS, 0>>, Mesh, Scheme> x_grad;
+            Evaluator<expr::Grad<vec3,expr::Axis<real, LHS, 1>>, Mesh, Scheme> y_grad;
+            Evaluator<expr::Grad<vec3,expr::Axis<real, LHS, 2>>, Mesh, Scheme> z_grad;
+        public:
+            Evaluator(const expr::Pressure_Poisson<LHS>& expr) :
+                    x_grad(grad(axis<0>(expr.lhs))),
+                    y_grad(grad(axis<1>(expr.lhs))),
+                    z_grad(grad(axis<2>(expr.lhs))) {}
+
+            real eval(const typename Mesh::Cell& cell) const {
+                vec3 x = x_grad.eval(cell);
+                vec3 y = y_grad.eval(cell);
+                vec3 z = z_grad.eval(cell);
+
+                //printf("(%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n", x.x,x.y,x.z, y.x,y.y,y.z, z.x,z.y,z.z);
+
+                return -(x.x * x.x + y.y * y.y + z.z * z.z + 2 * (x.y * y.x + z.y * y.z + z.x * x.z));
+            }
+        };
+    }
+};
+
+/*
+            vec3 u_c = cell_data3(sm, local, {});
+            vec3 u_dx = idx / 2 * (cell_data3(sm, local, DIR_X) - cell_data3(sm, local, -DIR_X));
+            vec3 u_dy = idx / 2 * (cell_data3(sm, local, DIR_Y) - cell_data3(sm, local, -DIR_Y));
+            vec3 u_dz = idx / 2 * (cell_data3(sm, local, DIR_Z) - cell_data3(sm, local, -DIR_Z));
+
+            real A = -2 * (idx2.x + idx2.y + idx2.z);
+            real source = -density * (u_dx.x * u_dx.x + u_dy.y * u_dy.y + u_dz.z * u_dz.z + 2 * (u_dy.x * u_dx.y + u_dy.z * u_dz.y + u_dz.x * u_dx.z));
+*/
+
 
 template<class Mesh, class Exec, class Mem>
 class FluidSolver {
@@ -43,6 +113,7 @@ public:
         uint64_t n = mesh.cell_count();
         pressure = Field<real,Mesh,Mem>("pressure", mesh, pressure_bc);
         velocity = Field<vec3,Mesh,Mem>("velocity", mesh, velocity_bc);
+        debug_scalar = Field<real,Mesh,Mem>("debug", mesh, pressure_bc);
         static_assert(is_constant<vec3>);
 
         Mem mem;
@@ -50,7 +121,7 @@ public:
 
         solver = Linear_Solver<Matrix<real,uint64_t,Mem>>::AMGCL_solver();
 
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::grad(1.0_R)));
+        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::grad(0.0_R)));
         pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_X}, scheme, bc::grad(0.0_R)));
         pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::value(0.0_R)));
         pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Y}, scheme, bc::grad(0.0_R)));
@@ -59,7 +130,8 @@ public:
 
         velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::value(vec3())));
         velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_X}, scheme, bc::value(vec3())));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::value(vec3(lid_velocity,0,0))));
+        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::value(vec3
+        (lid_velocity,0,0))));
         velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Y}, scheme, bc::value(vec3())));
         velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Z}, scheme, bc::value(vec3())));
         velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Z}, scheme, bc::value(vec3())));
@@ -78,30 +150,22 @@ public:
 
         auto scheme = Scheme();
 
-        auto momentum_eq = fvm::ddt(u,dt) + fvm::conv(u,u) - fvm::laplace(u);
+        auto momentum_eq = fvm::ddt(u,dt) + fvm::conv(u,u) - fvm::laplace(u) == -fvc::grad(p);
+        fvm::solve(exec, *solver, mesh, momentum_eq, -fvc::grad(p), u, scheme);
 
-        fvm::Pseudo_Matrix<vec3, Mem> pseudo;
-        fvm::solve(exec, *solver, mesh, momentum_eq, -fvc::grad(p), u, scheme, pseudo);
+        fvc::compute(exec,mesh,debug_scalar.data(), fvc::pressure_poisson(u), scheme);
 
-        Field<vec3,Mesh,Mem> H(mesh, pseudo.H, zero_grad_bc);
-        Field<vec3,Mesh,Mem> A(mesh, pseudo.A, zero_grad_bc);
-
-        auto iA = 1.0_R/fvc::avg(A);
-        auto pressure_eq = fvm::ddt(p,dt) + fvm::laplace(iA,p) == fvc::div(iA, H);
+        auto pressure_eq = fvm::laplace(p) == debug_scalar;
         fvm::solve(exec, *solver, mesh, pressure_eq, p, scheme);
     }
 };
 
-class RenderThread {
-    Window window;
-
-    void operator()() {
-
-    };
-};
 
 int main(int argc, char** argv) {
-    Kokkos::initialize(argc, argv);
+    Kokkos::InitializationSettings args;
+    args.set_num_threads(8);
+
+    Kokkos::initialize(args);
 
     Arena arena = make_host_arena(mb(10)); //todo: make RAII
     DEFER(destroy_host_arena(arena));
@@ -118,16 +182,17 @@ int main(int argc, char** argv) {
     Mesh mesh = {};
 
     vec3 extent = vec3(1);
-    uvec3 dims = uvec3(50);
+    uvec3 dims = uvec3(80);
 
     Kokkos::Timer timer;
     HexcoreAMR<Exec,Mem> amr(mesh);
     amr.uniform(extent, dims);
-    amr.adapt(2);
+    //amr.adapt(1);
     printf("Build mesh - %f ms", timer.seconds()*1e3);
     timer.reset();
 
     FluidSolver<Mesh,Exec,Mem> solver(exec,mesh);
+
 
     Window_Desc desc = {};
     desc.width = 1024;
@@ -145,7 +210,7 @@ int main(int argc, char** argv) {
     Kokkos::View<real*,Mem> field("field", mesh.cell_count());
 
     FPV fpv = {};
-    fpv.view_pos = vec3(0.5,0.5,2);
+    fpv.view_pos = vec3(0.5,0.5,3);
     fpv.mouse_sensitivity = 100.0/desc.width;
 
     real old_t = Window::get_time();
@@ -161,35 +226,6 @@ int main(int argc, char** argv) {
     });
     thread.detach();*/
 
-/*
-    mesh.for_each_cell("length", KOKKOS_LAMBDA(Hexcore<Exec,Mem>::Cell& cell) {
-        vec3 c = cell.center();
-        vec3 center = c / (0.5*extent); //0 < x < 2
-        real norm_dist_center = 1-max(abs(center - vec3(1)));
-
-        uint32_t up = cell.refinement_mask().up;
-        uint32_t down = cell.refinement_mask().down;
-
-        bool invalid = false;
-        for (auto face : cell.faces()) {
-            auto neigh = face.neigh();
-            if (neigh.is_ghost() && (vec3(0) < neigh.center() && neigh.center() < extent)) {
-                printf("Up %i:\n", cell.refinement_mask().up);
-                printf("Down: %i\n", cell.refinement_mask().down);
-                invalid = true;
-            }
-
-            if (false) { //up&(1<<face.cube_face())) {
-                printf("Set neighbor!!!! : %i\n", neigh.id());
-                face.neigh();
-                field(neigh.id()) = 0.5;
-            }
-        }
-
-        //if (up) field(cell.id()) = 1;
-        field(cell.id()) = invalid;// + 0.25*down;
-        // norm_dist_center;
-    });*/
     viewer.update(field, 0, 1);
 
     flag = true;
@@ -211,24 +247,15 @@ int main(int argc, char** argv) {
         scene.dir_light = vec3(-1,-1,-1);
 
         if (true) {
-            solver.advance(1e-1);
+            solver.advance(1e-2);
             auto velocity = solver.velocity;
-            auto pressure = solver.pressure;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                Kokkos::parallel_for("length", Kokkos::RangePolicy<Exec>(0, mesh.cell_count()), KOKKOS_LAMBDA(uint64_t i) {
-                    field(i) = length(velocity(i));
-                });
-                flag = true;
-            }
+            auto pressure = solver.pressure;//solver.debug_scalar; //solver.pressure;
+            Kokkos::parallel_for("length", Kokkos::RangePolicy<Exec>(0, mesh.cell_count()), KOKKOS_LAMBDA(uint64_t i) {
+                field(i) = length(velocity(i));
+            });
         }
 
-        bool expected = true;
-        /*if (flag.compare_exchange_strong(expected, false)) {
-            printf("================\n");
-            std::lock_guard<std::mutex> lock(mutex);
-        }*/
-        viewer.update(field, 0, lid_velocity);
+        viewer.update(field,0, lid_velocity);
         viewer.render(scene);
 
         window.draw();
@@ -239,3 +266,4 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+

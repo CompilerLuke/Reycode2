@@ -16,10 +16,10 @@ namespace reycode {
     public:
         using Morton_Code = uint64_t;
         struct Refinement_Mask {
-            uint32_t level: 8 = 0;
-            bool ghost : 1 = 0;
-            uint32_t up : 8 = 0;
-            uint32_t down : 8 = 0;
+            uint32_t level: 8;
+            bool ghost : 1;
+            uint32_t up : 8;
+            uint32_t down : 8;
         };
 
         using Device = Kokkos::Device<Exec, Mem>;
@@ -153,7 +153,7 @@ namespace reycode {
         static constexpr uint32_t MAX_COEFFS = 1 + CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION;
 
         void resize(uint64_t size) {
-            uint64_t hash_table_size = ceil_div(size, 1024) * 1024;
+            uint64_t hash_table_size = 8*size;
             hash_bucket_count = Kokkos::View<uint32_t *, Device>("HASH_BUCKET_COUNT", hash_table_size);
             hash_bucket_start = Kokkos::View<uint64_t *, Device>("HASH_BUCKET_START", hash_table_size);
 
@@ -169,92 +169,37 @@ namespace reycode {
             uint64_t cell: 56;
         };
 
-        class Cell {
-            const Hexcore *mesh = {};
-            uint64_t cell_id = 0;
-            Morton_Code code;
-            Refinement_Mask refinement;
-        public:
-            INL_CGPU Cell(const Hexcore *level, uint64_t cell_id, Morton_Code code, Refinement_Mask refinement) : mesh
-            (level), cell_id(cell_id), code(code), refinement(refinement) {}
-
-            INL_CGPU bool is_ghost() { return refinement.ghost; }
-
-            INL_CGPU real vol() const { return mesh->luts[refinement.level].cell_vol; }
-
-            INL_CGPU void ivol() const { return mesh->luts[refinement.level].cell_ivol; }
-
-            INL_CGPU vec3 center() const {
-                return mesh->cell_position(refinement, code);
-            }
-
-            INL_CGPU uint64_t id() const { return mesh->m_cell_base + cell_id; }
-
-            INL_CGPU uint32_t id_stencil() const { return 0; }
-
-            INL_CGPU auto faces() const {
-                array<Face, CUBE_FACE_SUBDIVISION*CUBE_FACE_COUNT> result; //(CUBE_FACE_COUNT);
-                uint32_t stencil_offset = 1;
-
-                for (uint32_t i = 0; i < CUBE_FACE_COUNT; i++) {
-                    bool refine = refinement.up & (1<<i);
-                    if (refine) {
-                        result.push_back(Face(mesh, cell_id, Cube_Face(i), 0, stencil_offset, code, refinement));
-                        result.push_back(Face(mesh, cell_id, Cube_Face(i), 1, stencil_offset+1, code, refinement));
-                        result.push_back(Face(mesh, cell_id, Cube_Face(i), 2, stencil_offset+2, code, refinement));
-                        result.push_back(Face(mesh, cell_id, Cube_Face(i), 3, stencil_offset+3, code, refinement));
-                        stencil_offset += 4;
-                    } else {
-                        result.push_back(Face(mesh, cell_id, Cube_Face(i), 0, stencil_offset, code, refinement));
-                        stencil_offset++;
-                    }
-                }
-                return result;
-            }
-
-            INL_CGPU array<uint64_t, CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION+1> stencil() const {
-                if (refinement.ghost) {
-                    return {0,1};
-                }
-
-                auto faces = this->faces();
-                array<uint64_t, CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION+1> result(1+faces.size());
-                result[0] = id();
-                for (Face& face : faces) {
-                    assert(face.neigh_stencil() != 0);
-                    result[face.neigh_stencil()] = face.neigh().id();
-                }
-                return result;
-            };
-
-            // Hexcore specific attributes
-            Refinement_Mask refinement_mask() { return refinement; }
-            Morton_Code morton_code() { return code; }
-            vec3 dx() { return mesh->luts[refinement.level].dx; }
-        };
 
         class Face {
-            const Hexcore *mesh = {};
+            const Hexcore* mesh = {};
             Cube_Face face;
             uint32_t subcell;
             uint64_t cell_id = 0;
             Refinement_Mask refinement;
             Morton_Code code;
             uint32_t stencil;
+            Morton_Code neigh_morton;
+            uint64_t m_neigh_id;
+            uint32_t l;
         public:
             INL_CGPU Face() {}
 
-            INL_CGPU Face(const Hexcore *level, uint64_t cell_id, Cube_Face face, uint32_t subcell, uint32_t stencil,
+            INL_CGPU Face(const Hexcore* level, uint64_t cell_id, Cube_Face face, uint32_t subcell, uint32_t stencil,
                           Morton_Code code, Refinement_Mask refinement)
                     : mesh(level), cell_id(cell_id), subcell(subcell), face(face), code(code), refinement(refinement),
-                    stencil
-                    (stencil) {
-                assert(refinement.level ==mesh->refinement_mask(cell_id).level);
+                      stencil
+                              (stencil) {
+                assert(refinement.level == mesh->refinement_mask(cell_id).level);
                 assert(code == mesh->morton_keys(cell_id));
+
+                neigh_morton = mesh->cell_neigh_morton(cell_id, face, subcell);
+                m_neigh_id = mesh->cell_id(neigh_morton);
+
+                l = refinement.level+(refinement.up & (1 << face) ? 1 : 0);
             }
 
             INL_CGPU uint64_t id() const {
-                return mesh->m_cell_base + cell_id * CUBE_FACE_COUNT*4 + face*4 + subcell;
+                return mesh->m_cell_base + cell_id * CUBE_FACE_COUNT * 4 + face * 4 + subcell;
                 //cell_id * 4 * CUBE_FACE_COUNT + 4*face + subcell;
             }
 
@@ -264,30 +209,32 @@ namespace reycode {
 
             INL_CGPU real ivol() const { return mesh->luts[refinement.level].cell_ivol; }
 
-            INL_CGPU real dx() const { return mesh->luts[refinement.level].face_dx[face]; }
+            INL_CGPU real dx() const { return mesh->luts[l].face_dx[face]; }
 
-            INL_CGPU real idx() const { return mesh->luts[refinement.level].face_idx[face]; }
+            INL_CGPU real idx() const { return mesh->luts[l].face_idx[face]; }
 
-            INL_CGPU real fa() const { return mesh->luts[refinement.level].face_a[face]; }
+            INL_CGPU real fa() const { return mesh->luts[l].face_a[face]; }
 
-            INL_CGPU vec3 sf() const { return mesh->luts[refinement.level].face_sf[face]; }
+            INL_CGPU vec3 sf() const { return mesh->luts[l].face_sf[face]; }
 
             INL_CGPU vec3 normal() const { return vec3(cube_normals[face]); }
 
             INL_CGPU uint64_t cell_stencil() const { return 0; }
             INL_CGPU uint64_t neigh_stencil() const {
-                assert(stencil < CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION+1);
+                assert(stencil < CUBE_FACE_COUNT* CUBE_FACE_SUBDIVISION + 1);
                 return stencil;
             }
 
-            INL_CGPU Cell cell() const { return Cell(mesh, cell_id, code, refinement); }
+            INL_CGPU auto cell() const { return Cell(mesh, cell_id, code, refinement); }
 
-            INL_CGPU Cell neigh() const {
-                Morton_Code neigh = mesh->cell_neigh_morton(cell_id, face, subcell);
-                uint64_t id = mesh->cell_id(neigh);
+            INL_CGPU auto neigh_id() const {
+                return m_neigh_id;
+            }
+
+            INL_CGPU auto neigh() const {
                 Refinement_Mask mask = refinement;
                 mask.ghost = true;
-                return id==UINT64_MAX ? Cell(mesh,id,neigh,mask) : mesh->get_cell(id);
+                return m_neigh_id==UINT64_MAX ? Cell(mesh,m_neigh_id,neigh_morton,mask) : mesh->get_cell(m_neigh_id,false);
             }
 
             INL_CGPU array<Vertex, 4> vertices() const {
@@ -311,13 +258,87 @@ namespace reycode {
             }
 
             // Hexcore-specific
-            Cube_Face cube_face() { return face; }
-            uint32_t sub_cell() { return subcell; }
+            Cube_Face cube_face() const { return face; }
+            uint32_t sub_cell() const { return subcell; }
         };
 
-        Cell get_cell(uint64_t id) const {
+        class Cell {
+            const Hexcore *mesh = {};
+            uint64_t cell_id = 0;
+            Morton_Code code;
+            Refinement_Mask refinement;
+            array<Face, CUBE_FACE_SUBDIVISION*CUBE_FACE_COUNT> face_cache;
+
+            friend Hexcore;
+        public:
+            INL_CGPU Cell(const Hexcore *level, uint64_t cell_id, Morton_Code code, Refinement_Mask refinement) : mesh
+                                                                                                                          (level), cell_id(cell_id), code(code), refinement(refinement) {}
+
+            INL_CGPU bool is_ghost() { return refinement.ghost; }
+
+            INL_CGPU real vol() const { return mesh->luts[refinement.level].cell_vol; }
+
+            INL_CGPU void ivol() const { return mesh->luts[refinement.level].cell_ivol; }
+
+            INL_CGPU vec3 center() const {
+                return mesh->cell_position(refinement, code);
+            }
+
+            INL_CGPU uint64_t id() const { return mesh->m_cell_base + cell_id; }
+
+            INL_CGPU uint32_t id_stencil() const { return 0; }
+
+            INL_CGPU slice<Face> faces() const {
+                return face_cache;
+            }
+
+            INL_CGPU array<uint64_t, CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION+1> stencil() const {
+                if (refinement.ghost) {
+                    return {0,1};
+                }
+
+                auto faces = this->faces();
+                array<uint64_t, CUBE_FACE_COUNT*CUBE_FACE_SUBDIVISION+1> result(1+faces.size());
+                result[0] = id();
+                for (Face& face : faces) {
+                    assert(face.neigh_stencil() != 0);
+                    result[face.neigh_stencil()] = face.neigh_id();
+                }
+                return result;
+            };
+
+            // Hexcore specific attributes
+            Refinement_Mask refinement_mask() { return refinement; }
+            Morton_Code morton_code() { return code; }
+            vec3 dx() { return mesh->luts[refinement.level].dx; }
+        };
+
+
+        Cell get_cell(uint64_t id, bool with_stencil = true) const {
             assert(id >= m_cell_base);
-            return Cell(this, id - m_cell_base, morton_keys(id), refinement_mask(id));
+
+            Morton_Code code = morton_keys(id);
+            Refinement_Mask refinement = refinement_mask(id);
+
+            Cell result(this, id - m_cell_base, code, refinement);
+            if (!with_stencil) return result;
+
+            uint32_t stencil_offset = 1;
+
+            for (uint32_t i = 0; i < CUBE_FACE_COUNT; i++) {
+                bool refine = result.refinement.up & (1<<i);
+                if (refine) {
+                    result.face_cache.push_back(Face(this, id, Cube_Face(i), 0, stencil_offset, code, refinement));
+                    result.face_cache.push_back(Face(this, id, Cube_Face(i), 1, stencil_offset+1, code, refinement));
+                    result.face_cache.push_back(Face(this, id, Cube_Face(i), 2, stencil_offset+2, code, refinement));
+                    result.face_cache.push_back(Face(this, id, Cube_Face(i), 3, stencil_offset+3, code, refinement));
+                    stencil_offset += 4;
+                } else {
+                    result.face_cache.push_back(Face(this, id, Cube_Face(i), 0, stencil_offset, code, refinement));
+                    stencil_offset++;
+                }
+            }
+            return result;
         }
 
         Face get_face(uint64_t id) const {
@@ -336,15 +357,15 @@ namespace reycode {
         void for_each_patch_cell(const char* name, Patch patch, Func func) const {
             const Boundary_Patch& ghost = m_patches[patch.id];
             Kokkos::parallel_for(name,
-                                Kokkos::RangePolicy<Exec>(0, ghost.cell_count()),
-                                KOKKOS_LAMBDA(uint64_t i) {
-                                    Cube_Face cube_face = ghost.face(i);
-                                    uint64_t id = ghost.id(i);
-                                    Refinement_Mask refinement = refinement_mask(id);
-                                    Morton_Code code = morton_keys(id);
-                                    Face face(this, id, cube_face, 0, 1, code, refinement);
-                                    func(face);
-                                });
+                                 Kokkos::RangePolicy<Exec>(0, ghost.cell_count()),
+                                 KOKKOS_LAMBDA(uint64_t i) {
+                                     Cube_Face cube_face = ghost.face(i);
+                                     uint64_t id = ghost.id(i);
+                                     Refinement_Mask refinement = refinement_mask(id);
+                                     Morton_Code code = morton_keys(id);
+                                     Face face(this, id, cube_face, 0, 1, code, refinement);
+                                     func(face);
+                                 });
         }
 
         template<class Func>
@@ -390,6 +411,12 @@ namespace reycode {
                     lut.face_normal[j] = vec3(cube_normals[j]);
                     lut.face_a[j] = lut.cell_vol / lut.face_dx[j];
                     lut.face_sf[j] = lut.face_a[j] * vec3(cube_normals[j]);
+
+                    auto print_vec = [=](const char* name, vec3 v) {
+                        printf("%s : (%f,%f,%f)\n", name, v.x, v.y, v.z);
+                    };
+
+                    print_vec("sf", lut.face_sf[j]);
                 }
             }
 
@@ -445,9 +472,9 @@ namespace reycode {
                 Kokkos::parallel_for("HEXCORE BOUNDARY PATCH",
                                      Kokkos::RangePolicy<Exec>(0, count),
                                      KOKKOS_LAMBDA(uint64_t i) {
-                    out_patch.id(i) = cell_id(in_patch.morton_codes(i));
-                    out_patch.face(i) = in_patch.faces(i);
-                });
+                                         out_patch.id(i) = cell_id(in_patch.morton_codes(i));
+                                         out_patch.face(i) = in_patch.faces(i);
+                                     });
             }
         }
     };

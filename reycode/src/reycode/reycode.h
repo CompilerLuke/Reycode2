@@ -732,6 +732,37 @@ namespace reycode {
         }
     };
 
+    template<class T>
+    struct slice {
+        T* data;
+        uint32_t length;
+
+        INL_CGPU slice() : data(nullptr), length(0) {}
+        INL_CGPU slice(T& value) : data(&value), length(1) {}
+        //slice(std::initializer_list<T> list) : data((T*)list.begin()), length(list.size()) {} //todo: introduce const slice
+        INL_CGPU slice(T* data, uint32_t length) : data(data), length(length) {}
+
+        INL_CGPU T& operator[](uint32_t i) {
+#ifdef BOUNDS_CHECKING
+            assert(i < length);
+#endif
+            return data[i];
+        }
+
+        INL_CGPU const T& operator[](uint32_t i) const {
+#ifdef BOUNDS_CHECKING
+            assert(i < length);
+#endif
+            return data[i];
+        }
+
+        INL_CGPU uint32_t size() { return length; }
+        INL_CGPU T* begin() { return data; }
+        INL_CGPU T* end() { return data + length; }
+        INL_CGPU const T* begin() const { return data; }
+        INL_CGPU const T* end() const { return data + length; }
+    };
+
     template<class T, uint32_t N>
     struct array {
         T data[N];
@@ -769,36 +800,10 @@ namespace reycode {
         INL_CGPU T* begin() { return data; }
         INL_CGPU T* end() { return data + length; }
         uint32_t size() const { return length; }
-    };
 
-    template<class T>
-    struct slice {
-        T* data;
-        uint32_t length;
-
-        INL_CGPU slice() : data(nullptr), length(0) {}
-        INL_CGPU slice(T& value) : data(&value), length(1) {}
-        //slice(std::initializer_list<T> list) : data((T*)list.begin()), length(list.size()) {} //todo: introduce const slice
-        INL_CGPU slice(T* data, uint32_t length) : data(data), length(length) {}
-
-        INL_CGPU T& operator[](uint32_t i) {
-#ifdef BOUNDS_CHECKING
-            assert(i < length);
-#endif
-            return data[i];
+        operator slice<T>() const {
+            return {(T*)data, length};
         }
-
-        INL_CGPU const T& operator[](uint32_t i) const {
-#ifdef BOUNDS_CHECKING
-            assert(i < length);
-#endif
-            return data[i];
-        }
-
-        INL_CGPU T* begin() { return data; }
-        INL_CGPU T* end() { return data + length; }
-        INL_CGPU const T* begin() const { return data; }
-        INL_CGPU const T* end() const { return data + length; }
     };
 
     template<class T>
