@@ -30,6 +30,7 @@ namespace reycode {
         if (input.key_down(KEY_BIND_DOWN)) camera.view_pos += move_speed * dt * -forward;
         if (input.key_down(KEY_BIND_RIGHT)) camera.view_pos += move_speed * dt * right;
         if (input.key_down(KEY_BIND_LEFT)) camera.view_pos += move_speed * dt * -right;
+        if (input.key_down(KEY_SPACE)) camera.view_pos += move_speed * dt * up;
     }
 
     mat4x4 fpv_view_mat(const FPV& fpv) {

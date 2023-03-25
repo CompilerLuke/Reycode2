@@ -19,7 +19,7 @@ using namespace reycode;
 struct PressureBC {};
 struct VelocityBC {};
 
-const real lid_velocity = 100;
+const real lid_velocity = 50;
 
 template<class Mesh, class Exec, class Mem>
 class FluidSolver {
@@ -92,6 +92,14 @@ public:
     }
 };
 
+class RenderThread {
+    Window window;
+
+    void operator()() {
+
+    };
+};
+
 int main(int argc, char** argv) {
     Kokkos::initialize(argc, argv);
 
@@ -110,10 +118,14 @@ int main(int argc, char** argv) {
     Mesh mesh = {};
 
     vec3 extent = vec3(1);
-    uvec3 dims = uvec3(100,100,100);//00);
+    uvec3 dims = uvec3(50);
 
+    Kokkos::Timer timer;
     HexcoreAMR<Exec,Mem> amr(mesh);
     amr.uniform(extent, dims);
+    amr.adapt(2);
+    printf("Build mesh - %f ms", timer.seconds()*1e3);
+    timer.reset();
 
     FluidSolver<Mesh,Exec,Mem> solver(exec,mesh);
 
@@ -122,6 +134,7 @@ int main(int argc, char** argv) {
     desc.height = 1024;
     desc.title = "Reycode";
     desc.validation = false;
+    desc.vsync = true;
 
     Window window(desc);
 
@@ -148,6 +161,39 @@ int main(int argc, char** argv) {
     });
     thread.detach();*/
 
+/*
+    mesh.for_each_cell("length", KOKKOS_LAMBDA(Hexcore<Exec,Mem>::Cell& cell) {
+        vec3 c = cell.center();
+        vec3 center = c / (0.5*extent); //0 < x < 2
+        real norm_dist_center = 1-max(abs(center - vec3(1)));
+
+        uint32_t up = cell.refinement_mask().up;
+        uint32_t down = cell.refinement_mask().down;
+
+        bool invalid = false;
+        for (auto face : cell.faces()) {
+            auto neigh = face.neigh();
+            if (neigh.is_ghost() && (vec3(0) < neigh.center() && neigh.center() < extent)) {
+                printf("Up %i:\n", cell.refinement_mask().up);
+                printf("Down: %i\n", cell.refinement_mask().down);
+                invalid = true;
+            }
+
+            if (false) { //up&(1<<face.cube_face())) {
+                printf("Set neighbor!!!! : %i\n", neigh.id());
+                face.neigh();
+                field(neigh.id()) = 0.5;
+            }
+        }
+
+        //if (up) field(cell.id()) = 1;
+        field(cell.id()) = invalid;// + 0.25*down;
+        // norm_dist_center;
+    });*/
+    viewer.update(field, 0, 1);
+
+    flag = true;
+
     while (window.is_open()) {
         real t = Window::get_time();
         real dt = t - old_t;
@@ -164,10 +210,8 @@ int main(int argc, char** argv) {
         scene.mvp = fpv_proj_mat(fpv, {desc.width,desc.height}) * fpv_view_mat(fpv);
         scene.dir_light = vec3(-1,-1,-1);
 
-        bool expected = true;
-
-        {
-            solver.advance(1e-2);
+        if (true) {
+            solver.advance(1e-1);
             auto velocity = solver.velocity;
             auto pressure = solver.pressure;
             {
@@ -179,11 +223,12 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (flag.compare_exchange_strong(expected, false)) {
+        bool expected = true;
+        /*if (flag.compare_exchange_strong(expected, false)) {
             printf("================\n");
             std::lock_guard<std::mutex> lock(mutex);
-            viewer.update(field, 0, lid_velocity);
-        }
+        }*/
+        viewer.update(field, 0, lid_velocity);
         viewer.render(scene);
 
         window.draw();

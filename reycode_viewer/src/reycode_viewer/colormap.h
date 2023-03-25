@@ -17,7 +17,7 @@ namespace reycode {
         int n = cm.color_count;
 
         value = (value - min_value) / delta * n;
-        value = roundf(value);
+        //value = roundf(value);
 
         int a = clamp(int(value), 0, n - 1);
             //max(0, min(value, n - 1));

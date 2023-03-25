@@ -84,12 +84,24 @@ namespace reycode {
 
             Kokkos::View<bool *, Mem> face_visibility("CELL VISIBLE", mesh.face_count());
 
+            struct Face_Vertex_Info {
+                uint32_t vertex_count : 16;
+                uint32_t index_count : 16;
+            };
+
             mesh.for_each_face("FACE VISIBILITY", KOKKOS_LAMBDA(auto& face) {
                 uint64_t neigh = face.neigh().id();
-                bool face_visible = cell_visibility(face.cell().id()) && (neigh==UINT64_MAX || !cell_visibility(neigh));
+                bool face_visible = cell_visibility(face.cell().id());
+
+                Face_Vertex_Info info = {};
+                info.vertex_count = face.vertices().size();
+                info.index_count = face.indices().size();
+                face_visible = face_visible && (neigh==UINT64_MAX || !cell_visibility(neigh));
                 face_visibility(face.id()) = face_visible;
             });
 
+
+            Kokkos::View<Face_Vertex_Info*, Mem> face_vertex_info("FACE VERTEX INFO", mesh.face_count());
             Kokkos::View<uint64_t *, Mem> visible_face_ids("CELL VISIBLE", mesh.face_count());
 
             printf("Mesh faces: %i, cells: %i\n", mesh.face_count(), mesh.cell_count());
@@ -100,7 +112,14 @@ namespace reycode {
                      uint64_t &
                      partial_sum, bool is_final) {
                 bool visible = face_visibility(i);
-                if (is_final && visible) visible_face_ids(partial_sum) = i;
+                if (is_final && visible) {
+                    Face_Vertex_Info info = {};
+                    info.vertex_count = mesh.get_face(i).vertices().size();
+                    info.index_count = mesh.get_face(i).indices().size();
+
+                    visible_face_ids(partial_sum) = i;
+                    face_vertex_info(partial_sum) = info;
+                }
                 partial_sum += visible;
             }, visible_face_count);
 
@@ -112,13 +131,13 @@ namespace reycode {
             Kokkos::parallel_scan("VERTEX SCAN", Kokkos::RangePolicy<Exec>(0, visible_face_count),
                                   KOKKOS_LAMBDA(uint64_t i, uint64_t &partial_sum, bool is_final) {
                                       if (is_final) vertex_offset(i) = partial_sum;
-                                      partial_sum += mesh.get_face(visible_face_ids(i)).vertices().size();
+                                      partial_sum += face_vertex_info(i).vertex_count;
                                   }, vertex_count);
 
             Kokkos::parallel_scan("VERTEX SCAN", Kokkos::RangePolicy<Exec>(0, visible_face_count),
                                   KOKKOS_LAMBDA(uint64_t i, uint64_t &partial_sum, bool is_final) {
                                       if (is_final) index_offset(i) = partial_sum;
-                                      partial_sum += mesh.get_face(visible_face_ids(i)).indices().size();
+                                      partial_sum += face_vertex_info(i).index_count;
                                   }, index_count);
 
             printf("Vertex count : %i, index count : %i\n", vertex_count, index_count);

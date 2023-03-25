@@ -188,6 +188,18 @@ namespace reycode {
         return { ceil_div(a.x,b.x), ceil_div(a.y, b.y), ceil_div(a.z, b.z) };
     }
 
+    INL_CGPU uvec3 operator<<(uvec3 a, uint32_t b) {
+        return {a.x<<b,a.y<<b,a.z<<b};
+    }
+
+    INL_CGPU uvec3 operator>>(uvec3 a, uint32_t b) {
+        return {a.x>>b,a.y>>b,a.z>>b};
+    }
+
+    INL_CGPU uvec3 operator&(uvec3 a, uint32_t b) {
+        return {a.x&b,a.y&b,a.z&b};
+    }
+
     INL_CGPU uvec3 operator+(uvec3 a, uvec3 b) {
         return { a.x + b.x, a.y + b.y, a.z + b.z };
     }
@@ -546,6 +558,12 @@ namespace reycode {
         return (1.0_R / 255.0_R) * vec3(r, g, b);
     }
 
+
+    INL_CGPU_CONST real min(vec3 vec) {
+        if (vec.x < vec.y) return vec.x < vec.z ? vec.x : vec.z;
+        else return vec.y < vec.z ? vec.y : vec.z;
+    }
+
     INL_CGPU_CONST real max(vec3 vec) {
         if (vec.x > vec.y) return vec.x > vec.z ? vec.x : vec.z;
         else return vec.y > vec.z ? vec.y : vec.z;
@@ -717,7 +735,7 @@ namespace reycode {
     template<class T, uint32_t N>
     struct array {
         T data[N];
-        uint32_t length;
+        uint32_t length = 0;
 
         INL_CGPU array() {}
         INL_CGPU array(uint32_t length) : length(length) {}
@@ -725,6 +743,11 @@ namespace reycode {
             assert(list.size() <= N);
             length = 0;
             for (T value : list) data[length++] = value;
+        }
+
+        void push_back(T value) {
+            assert(length < N);
+            data[length++] = value;
         }
 
         INL_CGPU T& operator[](uint32_t i) {
