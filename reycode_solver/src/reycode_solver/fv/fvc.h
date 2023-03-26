@@ -86,8 +86,8 @@ namespace reycode {
         }
 
         template<class T, class Mesh, class Mem>
-        expr::Divergence<to_scalar<T>, T, Field<T,Mesh,Mem>> div(const Field<T,Mesh,Mem>& rhs) {
-            return {T(),rhs};
+        expr::Divergence<to_scalar<T>, to_scalar<T>, Field<T,Mesh,Mem>> div(const Field<T,Mesh,Mem>& rhs) {
+            return {to_scalar<T>(1),rhs};
         }
 
         template<class T, class LHS, class Mesh, class Mem>
@@ -187,8 +187,12 @@ namespace reycode {
             public:
                 Evaluator(T value) : value(value) {}
 
-                T eval(const typename Mesh::Face& face) const { return value; }
-                T eval(const typename Mesh::Cell& face) const { return value; }
+                T eval(const typename Mesh::Face& face) const {
+                    return value;
+                }
+                T eval(const typename Mesh::Cell& face) const {
+                    return value;
+                }
             };
 
             template<class T, class Mem, class Mesh, class Scheme>
@@ -208,6 +212,12 @@ namespace reycode {
                 Evaluator(const expr::Binary_Expr<Tag, T, LHS, RHS> &expr) : lhs(expr.lhs), rhs(expr.rhs) {}
 
                 T eval(const typename Mesh::Face &face) const {
+                    static_assert(std::is_same_v<Tag,expr::AddTag>
+                               || std::is_same_v<Tag,expr::SubTag>
+                               || std::is_same_v<Tag,expr::MulTag>
+                               || std::is_same_v<Tag,expr::DivTag>
+                            , "Matched wrong case!");
+
                     if constexpr (std::is_same_v<Tag, expr::AddTag>) return lhs.eval(face) + rhs.eval(face);
                     else if constexpr (std::is_same_v<Tag, expr::SubTag>) return lhs.eval(face) - rhs.eval(face);
                     else if constexpr (std::is_same_v<Tag, expr::MulTag>) return lhs.eval(face) * rhs.eval(face);
@@ -215,6 +225,12 @@ namespace reycode {
                 };
 
                 T eval(const typename Mesh::Cell &cell) const {
+                    static_assert(std::is_same_v<Tag,expr::AddTag>
+                                  || std::is_same_v<Tag,expr::SubTag>
+                                  || std::is_same_v<Tag,expr::MulTag>
+                                  || std::is_same_v<Tag,expr::DivTag>
+                            , "Matched wrong case!");
+
                     if constexpr (std::is_same_v<Tag, expr::AddTag>) return lhs.eval(cell) + rhs.eval(cell);
                     else if constexpr (std::is_same_v<Tag, expr::SubTag>) return lhs.eval(cell) - rhs.eval(cell);
                     else if constexpr (std::is_same_v<Tag, expr::MulTag>) return lhs.eval(cell) * rhs.eval(cell);

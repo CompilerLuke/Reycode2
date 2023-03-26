@@ -16,6 +16,16 @@ namespace reycode {
         virtual ~Boundary_Patch() {}
     };
 
+    namespace bc::expr {
+        template<class T, class Super>
+        struct Expr;
+    }
+
+    namespace bc {
+        template<class T, class Expr, class Mesh, class Mem, class Scheme, bool SEGREGATED = !is_scalar<T>>
+        class Boundary_Patch_Expr;
+    }
+
     template<class T, class Mesh, class Mem>
     class Boundary_Condition {
         Mesh& mesh;
@@ -42,6 +52,13 @@ namespace reycode {
         void push_back(BC&& bc) {
             Boundary_Patch<T,Mesh,Mem>& compatibility_check = bc;
             patches.push_back(std::make_unique<BC>(std::move(bc)));
+        }
+
+        template<class Scheme, class Expr>
+        void push_back(Patch patch, Scheme scheme, const bc::expr::Expr<T,Expr>& expr) {
+            Mem mem;
+            bc::Boundary_Patch_Expr bc(mem, mesh, patch, scheme, expr);
+            push_back(std::move(bc));
         }
 
         void implicit_bc_matrix(Matrix<to_scalar<T>*,uint64_t,Mem>& matrix, uint32_t axis) const {

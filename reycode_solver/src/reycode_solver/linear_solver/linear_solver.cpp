@@ -31,7 +31,7 @@ namespace reycode {
         auto range = [](auto& view) { return amgcl::make_iterator_range(view.data(), view.data() + view.size()); };
 
         typename Solver::params params;
-        params.solver.maxiter = 10;
+        params.solver.tol = 1e-2;
 
         Solver solver(std::tuple(n, range(matrix.rowBegin), range(matrix.cols), range(matrix.coeffs)), params);
 

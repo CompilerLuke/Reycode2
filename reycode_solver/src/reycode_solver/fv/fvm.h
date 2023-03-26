@@ -390,13 +390,12 @@ namespace reycode {
             solve(exec,solver,mesh,expr,x.data(),x.bc(),scheme,matrix,source);
         }
 
-        template<class Exec, class Elem, class Mem, class Expr, class Source, class Mesh, class Scheme>
+        template<class Exec, class Elem, class Mem, class Expr, class Mesh, class Scheme>
         std::enable_if_t<!is_scalar<Elem>> solve(
                 Exec& exec,
                 Linear_Solver<Matrix<to_scalar<Elem>,uint64_t,Mem>>& solver,
                 const Mesh &mesh,
                 const Expr &expr,
-                const Source& source_expr,
                 Field<Elem, Mesh, Mem>& x_vec,
                 const Scheme& scheme
         ) {

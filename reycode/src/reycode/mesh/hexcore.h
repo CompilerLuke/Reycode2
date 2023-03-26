@@ -411,12 +411,6 @@ namespace reycode {
                     lut.face_normal[j] = vec3(cube_normals[j]);
                     lut.face_a[j] = lut.cell_vol / lut.face_dx[j];
                     lut.face_sf[j] = lut.face_a[j] * vec3(cube_normals[j]);
-
-                    auto print_vec = [=](const char* name, vec3 v) {
-                        printf("%s : (%f,%f,%f)\n", name, v.x, v.y, v.z);
-                    };
-
-                    print_vec("sf", lut.face_sf[j]);
                 }
             }
 

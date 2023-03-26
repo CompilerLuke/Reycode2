@@ -70,7 +70,7 @@ namespace reycode {
 
                 template<class... Layout>
                 T eval(const typename Mesh::Face& face, Kokkos::View<kokkos_ptr<T>,Layout...> prev) const {
-                    return prev(face.neigh().id()) + lhs.eval(face)*face.dx()/2;
+                    return prev(face.neigh().id()) + lhs.eval(face)*face.dx();
                 }
             };
 
@@ -115,7 +115,7 @@ namespace reycode {
             };
         }
 
-        template<class T, class Expr, class Mesh, class Mem, class Scheme, bool SEGREGATED = !is_scalar<T>>
+        template<class T, class Expr, class Mesh, class Mem, class Scheme, bool SEGREGATED>
         class Boundary_Patch_Expr : public Boundary_Patch<T,Mesh,Mem> {
             Mesh &mesh;
             Expr expr;

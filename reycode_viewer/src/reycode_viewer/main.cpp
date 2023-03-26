@@ -19,7 +19,7 @@ using namespace reycode;
 struct PressureBC {};
 struct VelocityBC {};
 
-const real lid_velocity = 100;
+const real lid_velocity = 200;
 
 namespace reycode::fvc {
     namespace expr {
@@ -97,7 +97,6 @@ class FluidSolver {
     Mesh& mesh;
     Boundary_Condition<real,Mesh,Mem> pressure_bc;
     Boundary_Condition<vec3,Mesh,Mem> velocity_bc;
-    Boundary_Condition<vec3,Mesh,Mem> zero_grad_bc;
 
     struct Scheme : fvc::scheme::Central_Difference, fvc::scheme::Upwind_Flux {};
 public:
@@ -109,7 +108,7 @@ public:
 
     std::unique_ptr<Linear_Solver<Matrix<real,uint64_t,Mem>>> solver;
 
-    FluidSolver(Exec& exec, Mesh& mesh) : exec(exec), mesh(mesh), pressure_bc(mesh), velocity_bc(mesh), zero_grad_bc(mesh) {
+    FluidSolver(Exec& exec, Mesh& mesh) : exec(exec), mesh(mesh), pressure_bc(mesh), velocity_bc(mesh) {
         uint64_t n = mesh.cell_count();
         pressure = Field<real,Mesh,Mem>("pressure", mesh, pressure_bc);
         velocity = Field<vec3,Mesh,Mem>("velocity", mesh, velocity_bc);
@@ -121,27 +120,19 @@ public:
 
         solver = Linear_Solver<Matrix<real,uint64_t,Mem>>::AMGCL_solver();
 
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::grad(0.0_R)));
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_X}, scheme, bc::grad(0.0_R)));
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::value(0.0_R)));
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Y}, scheme, bc::grad(0.0_R)));
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Z}, scheme, bc::grad(0.0_R)));
-        pressure_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Z}, scheme, bc::grad(0.0_R)));
+        pressure_bc.push_back({CUBE_FACE_POS_X},scheme, bc::grad(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_NEG_X},scheme, bc::grad(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_POS_Y},scheme, bc::value(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_NEG_Y},scheme, bc::grad(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_POS_Z},scheme, bc::grad(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_NEG_Z},scheme, bc::grad(0.0_R));
 
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::value(vec3())));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_X}, scheme, bc::value(vec3())));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::value(vec3
-        (lid_velocity,0,0))));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Y}, scheme, bc::value(vec3())));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Z}, scheme, bc::value(vec3())));
-        velocity_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Z}, scheme, bc::value(vec3())));
-
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_X}, scheme, bc::grad(vec3())));
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_X}, scheme, bc::grad(vec3())));
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Y}, scheme, bc::grad(vec3())));
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Z}, scheme, bc::grad(vec3())));
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_NEG_Y}, scheme, bc::grad(vec3())));
-        zero_grad_bc.push_back(bc::Boundary_Patch_Expr(mem, mesh, {CUBE_FACE_POS_Z}, scheme, bc::grad(vec3())));
+        velocity_bc.push_back({CUBE_FACE_POS_X}, scheme, bc::value(vec3()));
+        velocity_bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::value(vec3()));
+        velocity_bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::value(vec3(lid_velocity,0,0)));
+        velocity_bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::value(vec3()));
+        velocity_bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::value(vec3()));
+        velocity_bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::value(vec3()));
     }
 
     void advance(real dt) {
@@ -151,7 +142,7 @@ public:
         auto scheme = Scheme();
 
         auto momentum_eq = fvm::ddt(u,dt) + fvm::conv(u,u) - fvm::laplace(u) == -fvc::grad(p);
-        fvm::solve(exec, *solver, mesh, momentum_eq, -fvc::grad(p), u, scheme);
+        fvm::solve(exec, *solver, mesh, momentum_eq, u, scheme);
 
         fvc::compute(exec,mesh,debug_scalar.data(), fvc::pressure_poisson(u), scheme);
 
@@ -161,38 +152,148 @@ public:
 };
 
 
+using Mem = Kokkos::HostSpace;
+using Exec = Kokkos::Threads;
+using Mesh = Hexcore<Exec,Mem>;
+using Scheme = fvm::scheme::Central_Difference;
+
+void test_grad() {
+    Hexcore<Exec,Mem> mesh;
+    HexcoreAMR<Exec,Mem> amr(mesh);
+    amr.uniform(vec3(1), uvec3(10));
+
+    Mem mem;
+    Scheme scheme;
+    Exec exec;
+
+    Boundary_Condition<real,Mesh,Mem> bc(mesh);
+    bc.push_back({CUBE_FACE_POS_X}, scheme, bc::grad(1.0_R));
+    bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::grad(-1.0_R));
+    bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::grad(0.0_R));
+    bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::grad(0.0_R));
+    bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::grad(0.0_R));
+    bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::grad(0.0_R));
+
+    Field<real,Mesh,Mem> x("x", mesh, bc);
+    auto view = x.data();
+    mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
+       view(cell.id()) = cell.center().x;
+    });
+    x.update_bc();
+    Kokkos::View<vec3*,Mem> result("res",mesh.cell_count());
+    fvc::compute(exec,mesh,result,fvc::grad(x),scheme);
+
+    mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
+        vec3 grad = result(cell.id());
+        assert(length(grad - vec3(1,0,0)) < 1e-4);
+    });
+}
+
+
+void test_div() {
+    Hexcore<Exec,Mem> mesh;
+    HexcoreAMR<Exec,Mem> amr(mesh);
+    amr.uniform(vec3(1), uvec3(10));
+
+    Mem mem;
+    Scheme scheme;
+    Exec exec;
+
+    Boundary_Condition<vec3,Mesh,Mem> bc(mesh);
+    bc.push_back({CUBE_FACE_POS_X}, scheme, bc::grad(vec3(1,0,0)));
+    bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::grad(vec3(-1,0,0)));
+    bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::grad(vec3(0,1,0)));
+    bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::grad(vec3(0,-1,0)));
+    bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::grad(vec3(0,0,1)));
+    bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::grad(vec3(0,0,-1)));
+
+    Field<vec3,Mesh,Mem> x("x", mesh, bc);
+    mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
+        x.data()(cell.id()) = cell.center();
+    });
+    x.update_bc();
+    Kokkos::View<real*,Mem> result("res",mesh.cell_count());
+    fvc::compute(exec,mesh,result,fvc::div(x),scheme);
+
+    mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
+        real div = result(cell.id());
+        assert(fabs(div - 3) < 1e-4);
+    });
+}
+
+void test_laplace() {
+    Hexcore<Exec,Mem> mesh;
+    HexcoreAMR<Exec,Mem> amr(mesh);
+
+    uint32_t n = 100;
+    amr.uniform(vec3(2,2,2.0/n), uvec3(n,n,1));
+
+    Mem mem;
+    Scheme scheme;
+    Exec exec;
+
+    Boundary_Condition<vec3,Mesh,Mem> bc(mesh);
+    bc.push_back({CUBE_FACE_POS_X}, scheme, bc::value(vec3(0.0_R)));
+    bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::value(vec3(0.0_R)));
+    bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::value(vec3(0.0_R)));
+    bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::value(vec3(0.0_R)));
+    bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::grad(vec3(0.0_R)));
+    bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::grad(vec3(0.0_R)));
+
+    Field<vec3,Mesh,Mem> x("x", mesh, bc);
+
+    auto solver = Linear_Solver<Matrix<real,uint64_t,Mem>>::AMGCL_solver();
+
+    vec3 scale = vec3(1,2,3);
+
+    fvm::solve(exec,*solver,mesh,fvm::laplace(x)==-5*scale,x,scheme);
+
+    for (uint32_t axis = 0; axis < 3; axis++) {
+        Kokkos::View<real*> view("", mesh.cell_count());
+        mesh.for_each_cell("", KOKKOS_LAMBDA(Mesh::Cell& cell) {
+           view(cell.id()) = x(cell.id())[axis];
+        });
+
+        auto peak = Kokkos::Experimental::max_element(exec, view);
+        assert(fabs(*peak - 1.47 * scale[axis]) < 1e-1);
+    }
+}
+
+
 int main(int argc, char** argv) {
     Kokkos::InitializationSettings args;
     args.set_num_threads(8);
 
     Kokkos::initialize(args);
+    DEFER(Kokkos::finalize());
 
-    Arena arena = make_host_arena(mb(10)); //todo: make RAII
-    DEFER(destroy_host_arena(arena));
+    bool TEST = false;
+    if (TEST) {
+        test_grad();
+        test_div();
+        test_laplace();
+        return 0;
+    }
 
     RHI rhi;
-
-    using Mem = Kokkos::HostSpace;
-    using Exec = Kokkos::Threads;
-    using Mesh = Hexcore<Exec,Mem>;
 
     Exec exec;
     Mem mem;
 
     Mesh mesh = {};
 
-    vec3 extent = vec3(1);
-    uvec3 dims = uvec3(80);
+    uint32_t n = 50;
+    vec3 extent = vec3(1,1,1);
+    uvec3 dims = uvec3(n,n,n);
 
     Kokkos::Timer timer;
     HexcoreAMR<Exec,Mem> amr(mesh);
     amr.uniform(extent, dims);
-    //amr.adapt(1);
+    //amr.adapt(0);
     printf("Build mesh - %f ms", timer.seconds()*1e3);
     timer.reset();
 
     FluidSolver<Mesh,Exec,Mem> solver(exec,mesh);
-
 
     Window_Desc desc = {};
     desc.width = 1024;
@@ -215,20 +316,7 @@ int main(int argc, char** argv) {
 
     real old_t = Window::get_time();
 
-    std::mutex mutex;
-    std::atomic<bool> flag;
-    /*std::thread thread([&]() {
-        while (true) {
-
-            flag.store(true);
-            //break;
-        };
-    });
-    thread.detach();*/
-
     viewer.update(field, 0, 1);
-
-    flag = true;
 
     while (window.is_open()) {
         real t = Window::get_time();
@@ -247,9 +335,9 @@ int main(int argc, char** argv) {
         scene.dir_light = vec3(-1,-1,-1);
 
         if (true) {
-            solver.advance(1e-2);
+            solver.advance(1e-3);
             auto velocity = solver.velocity;
-            auto pressure = solver.pressure;//solver.debug_scalar; //solver.pressure;
+            auto pressure = solver.debug_scalar; //solver.pressure;//solver.debug_scalar; //solver.pressure;
             Kokkos::parallel_for("length", Kokkos::RangePolicy<Exec>(0, mesh.cell_count()), KOKKOS_LAMBDA(uint64_t i) {
                 field(i) = length(velocity(i));
             });
@@ -261,8 +349,6 @@ int main(int argc, char** argv) {
         window.draw();
         old_t = t;
     }
-
-    Kokkos::finalize();
 
     return 0;
 }
