@@ -19,7 +19,7 @@ using namespace reycode;
 struct PressureBC {};
 struct VelocityBC {};
 
-const real lid_velocity = 200;
+const real lid_velocity = 100;
 
 namespace reycode::fvc {
     namespace expr {
@@ -80,40 +80,42 @@ namespace reycode::fvc {
     }
 };
 
-/*
-            vec3 u_c = cell_data3(sm, local, {});
-            vec3 u_dx = idx / 2 * (cell_data3(sm, local, DIR_X) - cell_data3(sm, local, -DIR_X));
-            vec3 u_dy = idx / 2 * (cell_data3(sm, local, DIR_Y) - cell_data3(sm, local, -DIR_Y));
-            vec3 u_dz = idx / 2 * (cell_data3(sm, local, DIR_Z) - cell_data3(sm, local, -DIR_Z));
-
-            real A = -2 * (idx2.x + idx2.y + idx2.z);
-            real source = -density * (u_dx.x * u_dx.x + u_dy.y * u_dy.y + u_dz.z * u_dz.z + 2 * (u_dy.x * u_dx.y + u_dy.z * u_dz.y + u_dz.x * u_dx.z));
-*/
-
-
 template<class Mesh, class Exec, class Mem>
 class FluidSolver {
     Exec& exec;
     Mesh& mesh;
     Boundary_Condition<real,Mesh,Mem> pressure_bc;
     Boundary_Condition<vec3,Mesh,Mem> velocity_bc;
+    Boundary_Condition<vec3,Mesh,Mem> zero_bc;
 
     struct Scheme : fvc::scheme::Central_Difference, fvc::scheme::Upwind_Flux {};
 public:
     Field<real,Mesh,Mem> pressure;
     Field<vec3,Mesh,Mem> velocity;
+    Field<vec3,Mesh,Mem> velocity_flux;
+    Field<vec3,Mesh,Mem> diagonal;
 
     Field<vec3,Mesh,Mem> debug_vec;
     Field<real,Mesh,Mem> debug_scalar;
 
+
     std::unique_ptr<Linear_Solver<Matrix<real,uint64_t,Mem>>> solver;
 
-    FluidSolver(Exec& exec, Mesh& mesh) : exec(exec), mesh(mesh), pressure_bc(mesh), velocity_bc(mesh) {
+    FluidSolver(Exec& exec, Mesh& mesh) : exec(exec), mesh(mesh), pressure_bc(mesh), velocity_bc(mesh), zero_bc(mesh) {
         uint64_t n = mesh.cell_count();
         pressure = Field<real,Mesh,Mem>("pressure", mesh, pressure_bc);
         velocity = Field<vec3,Mesh,Mem>("velocity", mesh, velocity_bc);
+        velocity_flux = Field<vec3,Mesh,Mem>("velocity flux", mesh, velocity_bc);
+        diagonal = Field<vec3,Mesh,Mem>("diagonal", mesh, zero_bc);
         debug_scalar = Field<real,Mesh,Mem>("debug", mesh, pressure_bc);
         static_assert(is_constant<vec3>);
+
+        mesh.for_each_cell("init", KOKKOS_LAMBDA(typename Mesh::Cell& cell) {
+            velocity.view(cell.id()) = vec3(lid_velocity,0,0);
+            velocity_flux.view(cell.id()) = vec3(lid_velocity,0,0);
+        });
+        velocity_flux.update_bc();
+        velocity.update_bc();
 
         Mem mem;
         Scheme scheme;
@@ -121,33 +123,51 @@ public:
         solver = Linear_Solver<Matrix<real,uint64_t,Mem>>::AMGCL_solver();
 
         pressure_bc.push_back({CUBE_FACE_POS_X},scheme, bc::grad(0.0_R));
-        pressure_bc.push_back({CUBE_FACE_NEG_X},scheme, bc::grad(0.0_R));
-        pressure_bc.push_back({CUBE_FACE_POS_Y},scheme, bc::value(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_NEG_X},scheme, bc::value(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_POS_Y},scheme, bc::grad(0.0_R));
         pressure_bc.push_back({CUBE_FACE_NEG_Y},scheme, bc::grad(0.0_R));
         pressure_bc.push_back({CUBE_FACE_POS_Z},scheme, bc::grad(0.0_R));
         pressure_bc.push_back({CUBE_FACE_NEG_Z},scheme, bc::grad(0.0_R));
+        pressure_bc.push_back({CUBE_FACE_COUNT},scheme, bc::grad(0.0_R));
 
-        velocity_bc.push_back({CUBE_FACE_POS_X}, scheme, bc::value(vec3()));
-        velocity_bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::value(vec3()));
-        velocity_bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::value(vec3(lid_velocity,0,0)));
-        velocity_bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::value(vec3()));
-        velocity_bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::value(vec3()));
-        velocity_bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::value(vec3()));
+        velocity_bc.push_back({CUBE_FACE_POS_X}, scheme, bc::grad(vec3()));
+        velocity_bc.push_back({CUBE_FACE_NEG_X}, scheme, bc::value(vec3(lid_velocity,0,0)));
+        velocity_bc.push_back({CUBE_FACE_POS_Y}, scheme, bc::grad(vec3()));
+        velocity_bc.push_back({CUBE_FACE_NEG_Y}, scheme, bc::grad(vec3()));
+        velocity_bc.push_back({CUBE_FACE_POS_Z}, scheme, bc::grad(vec3()));
+        velocity_bc.push_back({CUBE_FACE_NEG_Z}, scheme, bc::grad(vec3()));
+        velocity_bc.push_back({CUBE_FACE_COUNT}, scheme, bc::value(vec3()));
+
+        zero_bc.push_back({CUBE_FACE_POS_X},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_NEG_X},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_POS_Y},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_NEG_Y},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_POS_Z},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_NEG_Z},scheme, bc::grad(vec3(0.0_R)));
+        zero_bc.push_back({CUBE_FACE_COUNT},scheme, bc::grad(vec3(0.0_R)));
     }
 
-    void advance(real dt) {
+    void advance() {
         auto& p = pressure;
         auto& u = velocity;
+        auto& u_f = velocity_flux;
+        auto& A = diagonal;
 
         auto scheme = Scheme();
 
-        auto momentum_eq = fvm::ddt(u,dt) + fvm::conv(u,u) - fvm::laplace(u) == -fvc::grad(p);
-        fvm::solve(exec, *solver, mesh, momentum_eq, u, scheme);
+        real mu = 0.1;
 
-        fvc::compute(exec,mesh,debug_scalar.data(), fvc::pressure_poisson(u), scheme);
+        fvm::Pseudo<vec3,Mesh,Mem> pseudo{A};
 
-        auto pressure_eq = fvm::laplace(p) == debug_scalar;
+        auto momentum_eq = fvm::ddt(u,1e-4) + fvm::conv(u_f,u) - vec3(mu)*fvm::laplace(u) == -fvc::grad(p);
+        fvm::solve(exec, *solver, mesh, momentum_eq, u, scheme, pseudo);
+
+        auto inv_A = 1.0_R / fvc::avg(A);
+        auto pressure_eq = fvm::laplace(p) == fvc::pressure_poisson(u);//fvc::div(u);
         fvm::solve(exec, *solver, mesh, pressure_eq, p, scheme);
+
+        fvc::compute(exec,mesh,u - vec3(1)/A*fvc::grad(p),u_f.data(),scheme);
+        u_f.update_bc();
     }
 };
 
@@ -181,7 +201,7 @@ void test_grad() {
     });
     x.update_bc();
     Kokkos::View<vec3*,Mem> result("res",mesh.cell_count());
-    fvc::compute(exec,mesh,result,fvc::grad(x),scheme);
+    //fvc::compute(exec,mesh,result,fvc::grad(x),scheme);
 
     mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
         vec3 grad = result(cell.id());
@@ -213,7 +233,7 @@ void test_div() {
     });
     x.update_bc();
     Kokkos::View<real*,Mem> result("res",mesh.cell_count());
-    fvc::compute(exec,mesh,result,fvc::div(x),scheme);
+    //fvc::compute(exec,mesh,result,fvc::div(x),scheme);
 
     mesh.for_each_cell("init", KOKKOS_LAMBDA(Mesh::Cell& cell) {
         real div = result(cell.id());
@@ -246,7 +266,8 @@ void test_laplace() {
 
     vec3 scale = vec3(1,2,3);
 
-    fvm::solve(exec,*solver,mesh,fvm::laplace(x)==-5*scale,x,scheme);
+    //fvm::Pseudo<real,Mesh,Mem> pseudo{};
+    //fvm::solve(exec,*solver,mesh,fvm::laplace(x)==-5*scale,x,scheme,pseudo);
 
     for (uint32_t axis = 0; axis < 3; axis++) {
         Kokkos::View<real*> view("", mesh.cell_count());
@@ -283,14 +304,14 @@ int main(int argc, char** argv) {
     Mesh mesh = {};
 
     uint32_t n = 50;
-    vec3 extent = vec3(1,1,1);
+    vec3 extent = vec3(5,5,5);
     uvec3 dims = uvec3(n,n,n);
 
     Kokkos::Timer timer;
     HexcoreAMR<Exec,Mem> amr(mesh);
     amr.uniform(extent, dims);
-    //amr.adapt(0);
-    printf("Build mesh - %f ms", timer.seconds()*1e3);
+    amr.adapt(Mesh::MAX_REFINEMENT);
+    printf("Buid mesh - %f ms", timer.seconds()*1e3);
     timer.reset();
 
     FluidSolver<Mesh,Exec,Mem> solver(exec,mesh);
@@ -311,7 +332,7 @@ int main(int argc, char** argv) {
     Kokkos::View<real*,Mem> field("field", mesh.cell_count());
 
     FPV fpv = {};
-    fpv.view_pos = vec3(0.5,0.5,3);
+    fpv.view_pos = vec3(2.5,2.5,10);
     fpv.mouse_sensitivity = 100.0/desc.width;
 
     real old_t = Window::get_time();
@@ -334,8 +355,9 @@ int main(int argc, char** argv) {
         scene.mvp = fpv_proj_mat(fpv, {desc.width,desc.height}) * fpv_view_mat(fpv);
         scene.dir_light = vec3(-1,-1,-1);
 
-        if (true) {
-            solver.advance(1e-3);
+        bool solve = true;
+        if (solve) {
+            solver.advance();
             auto velocity = solver.velocity;
             auto pressure = solver.debug_scalar; //solver.pressure;//solver.debug_scalar; //solver.pressure;
             Kokkos::parallel_for("length", Kokkos::RangePolicy<Exec>(0, mesh.cell_count()), KOKKOS_LAMBDA(uint64_t i) {
@@ -343,7 +365,7 @@ int main(int argc, char** argv) {
             });
         }
 
-        viewer.update(field,0, lid_velocity);
+        viewer.update(field,0, 1.5*lid_velocity);
         viewer.render(scene);
 
         window.draw();

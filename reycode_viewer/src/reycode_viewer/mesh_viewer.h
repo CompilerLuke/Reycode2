@@ -154,9 +154,11 @@ namespace reycode {
                                      auto face_vertices = face.vertices();
                                      auto face_indices = face.indices();
 
+                                     bool ghost = face.neigh().is_ghost();
+
                                      for (int i = 0; i < face_vertices.size(); i++) {
                                          Vertex vertex = face_vertices[i];
-                                         vertex.color = color_map(colormap, x(face.cell().id()), min, max);
+                                         vertex.color = ghost ? vec3() : color_map(colormap, x(face.cell().id()), min,max);
                                          vertices(v_offset + i) = vertex;
                                      }
 

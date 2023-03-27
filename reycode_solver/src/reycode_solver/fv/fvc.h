@@ -71,8 +71,14 @@ namespace reycode {
             template<class T, class RHS>
             Mul<T, T, RHS> operator*(T lhs, const Expr<T, RHS> &rhs) { return {lhs, rhs}; }
 
+            template<class T, class LHS, class RHS>
+            Mul<T, LHS, RHS> operator*(const Expr<T,LHS>& lhs, const Expr<T, RHS> &rhs) { return {lhs, rhs}; }
+
             template<class T, class RHS>
             Div<T, T, RHS> operator/(T lhs, const Expr<T, RHS> &rhs) { return {lhs, rhs}; }
+
+            template<class T, class LHS, class RHS>
+            Div<T, LHS, RHS> operator/(const Expr<T,LHS>& lhs, const Expr<T, RHS> &rhs) { return {lhs, rhs}; }
         };
 
         template<class T, class Mesh, class Mem>
@@ -242,8 +248,8 @@ namespace reycode {
         template<class Exec, class Mem, class Expr, class Mesh, class Scheme>
         void compute(Exec& exec,
                      const Mesh& mesh,
-                     const Kokkos::View<typename Expr::Elem*, Mem>& result,
                      const Expr& expr,
+                     const Kokkos::View<typename Expr::Elem*, Mem>& result,
                      const Scheme& scheme) {
             using Elem = typename Expr::Elem;
             eval::Evaluator<Expr, Mesh, Scheme> eval(expr);
@@ -251,6 +257,16 @@ namespace reycode {
             mesh.for_each_cell("Eval expr", KOKKOS_LAMBDA(const typename Mesh::Cell& cell) {
                 result(cell.id()) = eval.eval(cell);
             });
+        }
+
+        template<class Exec, class Mem, class Expr, class Mesh, class Scheme>
+        void compute(Exec& exec,
+                     const Mesh& mesh,
+                     const Expr& expr,
+                     const Field<typename Expr::Elem*, Mesh, Mem>& result,
+                     const Scheme& scheme) {
+            compute(exec,mesh,expr,result.data(),scheme);
+            result.update_bc();
         }
     }
 }

@@ -209,7 +209,8 @@ namespace reycode {
 
             INL_CGPU real ivol() const { return mesh->luts[refinement.level].cell_ivol; }
 
-            INL_CGPU real dx() const { return mesh->luts[l].face_dx[face]; }
+            INL_CGPU real dx() const { return mesh->luts[refinement.level].face_dx[face] * (0.5 + (refinement.up&
+            (1<<face) ? 0.25 : 0.5)); }
 
             INL_CGPU real idx() const { return mesh->luts[l].face_idx[face]; }
 

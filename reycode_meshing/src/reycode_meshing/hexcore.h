@@ -90,38 +90,77 @@ namespace reycode {
                                           Refinement_Mask mask = cell.refinement_mask();
                                           uint32_t level = mask.level;
 
-                                          vec3 center = cell.center() / (0.5 * extent);
-                                          real norm_dist_center = 1 - max(abs(center - vec3(1)));
+                                          vec3 center = extent * vec3(0.3,0.5,0.5);
+                                          real radius = 0.2;
 
-                                          bool refine = norm_dist_center < 1.01 * min(cell.dx());
-                                          refine_cell_mask0(idx) = refine ? Refine_Flag::Refine :
-                                                                   Refine_Flag::Untouched;
+                                          auto sdf = [=](vec3 pos) {
+                                              return length(center - pos) - radius;
+                                          };
+
+                                          vec3 p = cell.center();
+                                          vec3 dx = cell.dx();
+
+                                          bool inside = false;
+                                          bool refine = false;
+
+                                          real d[6];
+                                          for (uint32_t j = 0; j < CUBE_FACE_COUNT; j++) {
+                                              d[j] = sdf(p + dx * vec3(cube_normals[j]));
+                                          }
+
+                                          bool sign_change = false;
+                                          for (uint32_t j = 1; j < CUBE_FACE_COUNT; j++) {
+                                              sign_change = sign_change || (d[j] > 0 != d[0] > 0);
+                                          }
+
+                                          inside = !sign_change && d[0] < 0;
+
+                                          bool refine_intersect = sign_change && mask.level < 4;
+                                          bool refine_box = center - radius*vec3(5,5,5) < p
+                                                            && p < (center + radius*vec3(8,5,5));
+
+                                          refine = (mask.level<2 && refine_box) || (mask.level<4 && refine_intersect);
+
+                                          Refine_Flag flag = Refine_Flag::Untouched;
+                                          if (inside) flag = Refine_Flag::NotACell;
+                                          else if (refine) flag = Refine_Flag::Refine;
+
+                                          refine_cell_mask0(idx) = flag;
                                       });
 
-                for (uint32_t i = 0; i < 1; i++) {
+                printf("=====\n");
+
+                uint32_t balance_it = 10;
+                for (uint32_t i = 0; i < balance_it; i++) {
                     hexcore.for_each_cell("Balance",
                                           KOKKOS_LAMBDA(Cell &cell) {
                                               uint32_t idx = cell.id();
                                               Refinement_Mask mask = cell.refinement_mask();
                                               uint32_t level = mask.level;
-                                              bool refine = refine_cell_mask0(idx) == Refine_Flag::Refine;
+
+                                              Refine_Flag flag = refine_cell_mask0(idx);
+                                              if (flag == Refine_Flag::NotACell) {
+                                                  refine_cell_mask1(idx) = Refine_Flag::NotACell;
+                                                  return;
+                                              }
+
+                                              bool refine = flag==Refine_Flag::Refine;
+                                              bool unbalanced = false;
 
                                               for (Face face: cell.faces()) {
                                                   Cell neigh = face.neigh();
                                                   if (neigh.id() == UINT64_MAX) continue;
                                                   Refinement_Mask neigh_mask = neigh.refinement_mask();
+                                                  Refine_Flag flag = refine_cell_mask0(neigh.id());
+                                                  if (flag==Refine_Flag::NotACell) continue;
 
-                                                  int level_diff =
-                                                          int(neigh_mask.level) + (refine_cell_mask0(neigh.id())
-                                                                                   == Refine_Flag::Refine) -
-                                                          int(mask.level) - refine;
-                                                  bool unbalanced = level_diff > 1;
-                                                  refine = refine || unbalanced;
+                                                  int level_diff = int(neigh_mask.level + (flag==Refine_Flag::Refine)) -int(mask.level + refine);
+                                                  if (level_diff > 1) unbalanced = true;
                                               }
 
                                               vec3 center = cell.center() + 0.5_R * cell.dx();
 
-                                              refine_cell_mask1(idx) = refine ? Refine_Flag::Refine
+                                              refine_cell_mask1(idx) = refine||unbalanced ? Refine_Flag::Refine
                                                                               : Refine_Flag::Untouched;
                                           });
 
@@ -149,7 +188,9 @@ namespace reycode {
                                       KOKKOS_LAMBDA(Cell &cell) {
                                           uint32_t i = cell.id();
                                           Refinement_Mask mask = cell.refinement_mask();
-                                          bool refined = refine_cell_mask(i) == Refine_Flag::Refine;
+                                          Refine_Flag flag = refine_cell_mask(i);
+                                          if (flag == Refine_Flag::NotACell) return;
+                                          bool refined = flag == Refine_Flag::Refine;
                                           uint64_t offset = cell_index(i);
                                           Morton_Code code = cell.morton_code();
 
@@ -159,12 +200,18 @@ namespace reycode {
 
                                           for (Face &face: cell.faces()) {
                                               Cell neigh = face.neigh();
-                                              if (neigh.is_ghost()) continue;
+                                              if (neigh.id()==UINT64_MAX || neigh.is_ghost()) continue;
                                               Refinement_Mask neigh_mask = neigh.refinement_mask();
-                                              uint32_t neigh_level = neigh_mask.level + (refine_cell_mask(neigh.id())
-                                                                                         == Refine_Flag::Refine);
+                                              Refine_Flag flag = refine_cell_mask(neigh.id());
+                                              if (flag == Refine_Flag::NotACell) continue;
+
+                                              uint32_t neigh_level = neigh_mask.level + (flag== Refine_Flag::Refine);
                                               int d = int(neigh_level) - int(mask.level + refined);
-                                              assert(abs(d) <= 1);
+
+                                              if (abs(d) > 1) {
+                                                  vec3 center = face.center();
+                                                  printf("Unbalanced fatal: %i, diff: %i\n", i, d);
+                                              }
                                               diff[face.cube_face()][face.sub_cell()] = d;
                                           }
 
@@ -237,12 +284,17 @@ namespace reycode {
             Kokkos::vector<uint64_t, Mem> patch_base(CUBE_FACE_COUNT + 1);
             Kokkos::vector<uint64_t, Mem> patch_counts(CUBE_FACE_COUNT + 1);
 
+            auto patch_id = [extent](Cube_Face face, vec3 center) {
+                bool inside = vec3(0.1) < center && center < 0.9*extent;
+                uint32_t patch_id = inside ? CUBE_FACE_COUNT : face;
+                return patch_id;
+            };
+
             hexcore.for_each_cell("Refine",
                                   KOKKOS_LAMBDA(Cell &cell) {
                                       for (Face &face: cell.faces()) {
                                           if (face.neigh().id() == UINT64_MAX || face.neigh().is_ghost()) {
-                                              Cube_Face f = face.cube_face();
-                                              Kokkos::atomic_inc(&patch_counts(f));
+                                              Kokkos::atomic_inc(&patch_counts(patch_id(face.cube_face(), cell.center())));
                                           }
                                       }
                                   });
@@ -276,31 +328,12 @@ namespace reycode {
                                       Morton_Code code = cell.morton_code();
                                       Refinement_Mask mask = cell.refinement_mask();
                                       uint32_t level = mask.level;
-                                      //printf("Cell : %f %f %f, level: %i, up: %i, down: %i\n", cell.center().x,
-                                      //        cell
-                                      //.center().y,
-                                      //       cell
-                                      //.center()
-                                      //.z, level, mask.up, mask.down);
                                       for (Face &face: cell.faces()) {
                                           Cell neigh = face.neigh();
-                                          //printf("Face : %i ", face.neigh_stencil());
                                           if (neigh.id() == UINT64_MAX || neigh.is_ghost()) {
-                                              vec3 c = neigh.center();
-                                              if (vec3(0) < c && c < extent) {
-                                                  face.neigh();
-                                                  printf("morton: %i, id: %i, Ghost: %i\n", neigh.morton_code(),
-                                                         neigh.id(), neigh
-                                                                 .is_ghost());
-                                                  printf("Loc: (%f,%f,%f)\n", neigh.center().x, neigh.center().y,
-                                                         neigh
-                                                                 .center().z);
-                                                  printf("Up: %i, down: %i\n", mask.up, mask.down);
-                                              }
-
-                                              Cube_Face f = face.cube_face();
-                                              uint64_t offset = Kokkos::atomic_fetch_inc(&patch_counts(f));
-                                              uint64_t base = patch_base(f);
+                                              uint32_t patch = patch_id(face.cube_face(), cell.center());
+                                              uint64_t offset = Kokkos::atomic_fetch_inc(&patch_counts(patch));
+                                              uint64_t base = patch_base(patch);
 
                                               Morton_Code code = neigh.morton_code();
                                               Refinement_Mask refinement = cell.refinement_mask();
@@ -311,8 +344,8 @@ namespace reycode {
                                               morton_codes1(base + offset) = code;
                                               refinement_mask1(base + offset) = refinement;
 
-                                              patches_view(f).morton_codes(offset) = code;
-                                              patches_view(f).faces(offset) = Cube_Face(cube_opposite_faces[f]);
+                                              patches_view(patch).morton_codes(offset) = code;
+                                              patches_view(patch).faces(offset) = Cube_Face(cube_opposite_faces[face.cube_face()]);
                                           }
                                       }
 

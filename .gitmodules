@@ -25,3 +25,6 @@
 [submodule "reycode_solver/vendor/--force"]
 	path = reycode_solver/vendor/--force
 	url = https://github.com/ddemidov/amgcl.git
+[submodule "reycode_solver/vendor/vexcl"]
+	path = reycode_solver/vendor/vexcl
+	url = https://github.com/ddemidov/vexcl.git

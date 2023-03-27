@@ -47,6 +47,23 @@ namespace reycode {
         }
 
         template<class Exec, class Scalar = to_scalar<Coeff>>
+        void diagonal(Exec& exec, Kokkos::View<Coeff*,Mem> out_diagonal) {
+            Kokkos::parallel_for("Diagonal splitting",
+                                 Kokkos::RangePolicy<Exec>(0,n),
+                                 KOKKOS_LAMBDA(uint64_t row) {
+                                     Index start = rowBegin[row];
+                                     Index end = rowBegin[row+1];
+                                     Coeff diagonal = Coeff();
+
+                                     for (uint32_t j = start; j < end; j++) {
+                                         if (cols(j) == row) diagonal += coeffs(j);
+                                     }
+
+                                     out_diagonal(row) = diagonal;
+                                 });
+        }
+
+        template<class Exec, class Scalar = to_scalar<Coeff>>
         void split_diagonal(Exec& exec,
                Kokkos::View<Coeff*,Mem> out_diagonal,
                Kokkos::View<Coeff*,Mem> out_off_diagonal,

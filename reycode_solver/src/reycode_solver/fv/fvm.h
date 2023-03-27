@@ -390,6 +390,11 @@ namespace reycode {
             solve(exec,solver,mesh,expr,x.data(),x.bc(),scheme,matrix,source);
         }
 
+        template<class T, class Mesh, class Mem>
+        struct Pseudo {
+            Field<T,Mesh,Mem>& A;
+        };
+
         template<class Exec, class Elem, class Mem, class Expr, class Mesh, class Scheme>
         std::enable_if_t<!is_scalar<Elem>> solve(
                 Exec& exec,
@@ -397,13 +402,15 @@ namespace reycode {
                 const Mesh &mesh,
                 const Expr &expr,
                 Field<Elem, Mesh, Mem>& x_vec,
-                const Scheme& scheme
+                const Scheme& scheme,
+                const Pseudo<Elem,Mesh,Mem> pseudo
         ) {
             Matrix<to_scalar<Elem>,uint64_t,Mem> matrix;
             uint64_t n = mesh.cell_count();
 
-            Kokkos::View<float *, Kokkos::HostSpace> source("source", n);
-            Kokkos::View<float *, Kokkos::HostSpace> x("source", n);
+            Kokkos::View<to_scalar<Elem>*, Kokkos::HostSpace> source("source", n);
+            Kokkos::View<to_scalar<Elem>*, Kokkos::HostSpace> x("source", n);
+            Kokkos::View<to_scalar<Elem>*,Mem> A("A",n);
 
             auto solve_axis = [&](auto AXIS) {
                 assert(x_vec.size() >= x.size());
@@ -411,8 +418,6 @@ namespace reycode {
                 constexpr uint32_t axis = uint32_t(decltype(AXIS)());
 
                 Kokkos::View<to_scalar<Elem>*,Mem> x("x",n);
-                Kokkos::View<to_scalar<Elem>*,Mem> A("A",n);
-                Kokkos::View<to_scalar<Elem>*,Mem> H("H",n);
 
                 auto axis_dst = [&](auto& dst, auto& src) {
                     Kokkos::parallel_for("axis_dst", Kokkos::RangePolicy<Exec>(0,n), KOKKOS_LAMBDA(uint32_t i) {
@@ -430,6 +435,8 @@ namespace reycode {
 
                 auto bc = x_vec.bc().segregated(axis);
                 solve(exec,solver,mesh,fvm::axis<axis>(expr), x,bc,scheme, matrix,source);
+                matrix.diagonal(exec,A);
+                axis_src(pseudo.A, A);
                 axis_src(x_vec, x);
             };
 

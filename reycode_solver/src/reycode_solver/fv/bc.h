@@ -61,12 +61,13 @@ namespace reycode {
 
                 Evaluator(const expr::Grad <T, LHS> &expr) : lhs(expr.lhs) {}
                 void coeffs(Stencil_Matrix <T, Mesh> &stencil, const typename Mesh::Face &face, T factor) const {
-                    stencil[face.neigh_stencil()] += factor * face.idx() * face.fa() * face.ivol();
-                    stencil[face.cell_stencil()] += -factor * face.idx() * face.fa() * face.ivol();
+                    stencil[face.neigh_stencil()] += T(1);//factor * face.idx() * face.fa() * face.ivol();
+                    stencil[face.cell_stencil()] += -T(1); //factor * face.idx() * face.fa() * face.ivol();
                 }
 
-                T source(const typename Mesh::Face &face) const { return face.fa() * face.ivol() * face.dx() * lhs.eval
-                (face); }
+                T source(const typename Mesh::Face &face) const { return T();
+                    //face.fa() * face.ivol() * face.dx() * lhs.eval(face);
+                }
 
                 template<class... Layout>
                 T eval(const typename Mesh::Face& face, Kokkos::View<kokkos_ptr<T>,Layout...> prev) const {
@@ -81,11 +82,12 @@ namespace reycode {
                 Evaluator(const expr::Value<T, LHS> &expr) : lhs(expr.lhs) {}
 
                 void coeffs(Stencil_Matrix<T, Mesh> &stencil, const typename Mesh::Face &face, T factor) const {
-                    stencil[face.neigh_stencil()] += factor / 2 * face.fa() * face.ivol();
-                    stencil[face.cell_stencil()] += factor / 2 * face.fa() * face.ivol();
+                    stencil[face.neigh_stencil()] += T(0.5);//factor / 2 * face.fa() * face.ivol();
+                    stencil[face.cell_stencil()] += T(0.5);//factor / 2 * face.fa() * face.ivol();
                 }
 
-                T source(const typename Mesh::Face &face) const { return face.fa() * face.ivol() * lhs.eval(face); }
+                //face.fa() * face.ivol() *
+                T source(const typename Mesh::Face &face) const { return lhs.eval(face); }
 
                 template<class... Layout>
                 T eval(const typename Mesh::Face& face, Kokkos::View<kokkos_ptr<T>, Layout...> prev) const {
